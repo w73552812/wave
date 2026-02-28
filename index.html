@@ -1,4 +1,8 @@
 <!DOCTYPE html>
+import {
+  getDatabase, ref, set, get, push, onValue,
+  update, query, orderByChild, limitToLast, equalTo, startAt, endAt
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
@@ -7,6 +11,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
+  .search-results-list { max-height: 300px; overflow-y: auto; margin-top: 10px; }
+.search-item {
+  display: flex; align-items: center; padding: 10px;
+  cursor: pointer; border-radius: 8px; transition: 0.2s;
+}
+.search-item:hover { background: var(--surface2); }
+.avatar.big {
+  width: 80px; height: 80px; font-size: 2rem; margin: 0 auto 15px;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+}
+.profile-card { text-align: center; padding: 30px; }
   :root {
     --bg: #0a0a0f;
     --surface: #111118;
@@ -699,6 +714,111 @@
 
 <!-- Firebase SDK -->
 <script type="module">
+  // Функция открытия поиска
+window.openSearchModal = () => {
+  document.getElementById('search-modal').classList.add('open');
+  document.getElementById('global-search-input').focus();
+};
+
+window.closeSearchModal = () => {
+  document.getElementById('search-modal').classList.remove('open');
+  document.getElementById('search-results').innerHTML = '';
+};
+
+// Глобальный поиск пользователей по базе
+let searchTimeout;
+window.doGlobalSearch = () => {
+  clearTimeout(searchTimeout);
+  const val = document.getElementById('global-search-input').value.trim().toLowerCase();
+  
+  if (val.length < 2) {
+    document.getElementById('search-results').innerHTML = '';
+    return;
+  }
+
+  searchTimeout = setTimeout(async () => {
+    // Ищем пользователей, чье имя начинается на введенный текст
+    const usersRef = ref(db, 'users');
+    const q = query(usersRef, orderByChild('nameLower'), startAt(val), endAt(val + '\uf8ff'));
+    const snap = await get(q);
+    
+    const resultsEl = document.getElementById('search-results');
+    resultsEl.innerHTML = '';
+    
+    if (snap.exists()) {
+      snap.forEach(child => {
+        const user = child.val();
+        if (user.uid === currentUser.uid) return; // Не показываем себя
+        
+        const div = document.createElement('div');
+        div.className = 'search-item';
+        div.innerHTML = `
+          <div class="avatar" style="background:${strToColor(user.name)}; margin-right:12px">${user.name[0].toUpperCase()}</div>
+          <div style="text-align:left">
+            <div style="font-weight:600">${user.name}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted)">Нажмите, чтобы посмотреть профиль</div>
+          </div>
+        `;
+        div.onclick = () => openUserProfile(user);
+        resultsEl.appendChild(div);
+      });
+    } else {
+      resultsEl.innerHTML = '<div style="padding:10px; color:var(--text-muted)">Никого не нашли...</div>';
+    }
+  }, 300);
+};
+
+// Открытие профиля
+window.openUserProfile = (user) => {
+  closeSearchModal();
+  const modal = document.getElementById('profile-modal');
+  modal.classList.add('open');
+  
+  document.getElementById('profile-name').textContent = user.name;
+  document.getElementById('profile-email').textContent = user.email;
+  const av = document.getElementById('profile-avatar');
+  av.textContent = user.name[0].toUpperCase();
+  av.style.background = strToColor(user.name);
+  
+  document.getElementById('start-chat-btn').onclick = () => startChatWith(user);
+};
+
+window.closeProfileModal = () => document.getElementById('profile-modal').classList.remove('open');
+
+// Логика создания чата из профиля
+async function startChatWith(targetUser) {
+  closeProfileModal();
+  
+  // 1. Ищем, есть ли уже такой чат
+  const existingId = Object.keys(chatsData).find(id => 
+    chatsData[id].type === 'direct' && chatsData[id].members[targetUser.uid]
+  );
+  
+  if (existingId) {
+    openChat(existingId, chatsData[existingId]);
+    return;
+  }
+  
+  // 2. Если чата нет — создаем
+  const chatRef = push(ref(db, 'chats'));
+  const chatId = chatRef.key;
+  const chatData = {
+    type: 'direct',
+    members: { [currentUser.uid]: true, [targetUser.uid]: true },
+    names: { [currentUser.uid]: currentUser.displayName, [targetUser.uid]: targetUser.name },
+    createdAt: Date.now()
+  };
+  
+  await set(chatRef, chatData);
+  await set(ref(db, `userChats/${currentUser.uid}/${chatId}`), true);
+  await set(ref(db, `userChats/${targetUser.uid}/${chatId}`), true);
+  
+  // Открываем созданный чат
+  openChat(chatId, chatData);
+}
+
+// Нужно импортировать дополнительные функции из firebase-database в самом верху:
+// import { ... startAt, endAt } from "...";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -1079,5 +1199,30 @@ document.getElementById('login-pass').addEventListener('keydown', e => { if(e.ke
 document.getElementById('reg-pass').addEventListener('keydown', e => { if(e.key==='Enter') doRegister(); });
 document.getElementById('login-email').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('login-pass').focus(); });
 </script>
+  <div id="search-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Поиск контактов</h3>
+      <button onclick="closeSearchModal()" class="close-btn">×</button>
+    </div>
+    <div class="search-bar" style="margin: 15px 0;">
+      <input type="text" id="global-search-input" placeholder="Введите имя пользователя..." oninput="doGlobalSearch()">
+    </div>
+    <div id="search-results" class="search-results-list">
+      </div>
+  </div>
+</div>
+
+<div id="profile-modal" class="modal">
+  <div class="modal-content profile-card">
+    <div id="profile-avatar" class="avatar big"></div>
+    <h2 id="profile-name">Имя пользователя</h2>
+    <p id="profile-email" style="color: var(--text-muted); font-size: 0.9rem;"></p>
+    <div class="profile-actions" style="margin-top: 20px; width: 100%;">
+      <button class="primary-btn" id="start-chat-btn" style="width: 100%;">Написать сообщение</button>
+    </div>
+    <button onclick="closeProfileModal()" class="secondary-btn" style="margin-top: 10px; width: 100%;">Закрыть</button>
+  </div>
+</div>
 </body>
 </html>
