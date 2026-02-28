@@ -345,9 +345,9 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 .sticker-tab{background:none;border:1px solid transparent;border-radius:8px;padding:4px 10px;font-size:.75rem;cursor:pointer;color:var(--muted);white-space:nowrap;transition:background .15s;}
 .sticker-tab.active{background:var(--surface2);border-color:var(--border);color:var(--text);}
 .sticker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;overflow-y:auto;flex:1;}
-.sticker-cell{aspect-ratio:1;border-radius:8px;cursor:pointer;padding:4px;transition:background .1s;display:flex;align-items:center;justify-content:center;font-size:2.4rem;}
-.sticker-cell:hover{background:var(--surface2);}
-.sticker-cell img{width:100%;height:100%;object-fit:contain;}
+.sticker-cell{aspect-ratio:1;border-radius:8px;cursor:pointer;padding:4px;transition:background .1s,transform .1s;display:flex;align-items:center;justify-content:center;font-size:2.4rem;overflow:hidden;}
+.sticker-cell:hover{background:var(--surface2);transform:scale(1.08);}
+.sticker-cell img{width:100%;height:100%;object-fit:cover;border-radius:6px;}
 .spack-item{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;border:1px solid var(--border);margin-bottom:6px;}
 .spack-thumb{width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--surface2);}
 .spack-info{flex:1;min-width:0;}
@@ -589,21 +589,35 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 <div class="modal-overlay" id="my-profile-modal">
   <div class="modal">
     <h3>Мой профиль</h3>
-    <!-- Photo gallery header -->
-    <div class="profile-header" id="my-profile-header">
+    <!-- Avatar + name header -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0 4px;">
       <div style="position:relative;">
-        <div class="profile-photos-scroll" id="my-photos-scroll"></div>
+        <div class="profile-main-av" id="my-profile-av" onclick="openAvatarPicker()" title="Изменить аватар"></div>
+        <div onclick="openAvatarPicker()" style="position:absolute;bottom:0;right:0;width:22px;height:22px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.75rem;border:2px solid var(--surface);">📷</div>
+      </div>
+      <div class="profile-name-big" id="my-profile-name" style="text-align:center;"></div>
+      <div class="profile-nick-small" id="my-profile-nick" style="text-align:center;"></div>
+    </div>
+    <!-- Photo gallery -->
+    <div class="modal-section">Фото профиля</div>
+    <div class="profile-header" id="my-profile-header" style="margin-bottom:0;">
+      <div style="position:relative;">
+        <div class="profile-photos-scroll" id="my-photos-scroll" style="height:120px;"></div>
         <div class="profile-photo-dots" id="my-photo-dots"></div>
         <button class="profile-add-photo-btn" onclick="addMyPhoto()" title="Добавить фото">＋</button>
         <input type="file" id="my-extra-photo-input" accept="image/*" style="display:none;" onchange="handleMyExtraPhoto(event)">
       </div>
-      <div class="profile-avatar-over">
-        <div class="profile-main-av" id="my-profile-av" onclick="openAvatarPicker()"></div>
-      </div>
     </div>
-    <div class="profile-info-center">
-      <div class="profile-name-big" id="my-profile-name"></div>
-      <div class="profile-nick-small" id="my-profile-nick"></div>
+    <!-- Audio profile -->
+    <div class="modal-section">🎵 Музыка профиля</div>
+    <div id="profile-audio-wrap" style="display:flex;flex-direction:column;gap:6px;">
+      <div id="profile-audio-player-wrap" style="display:none;"></div>
+      <div style="display:flex;gap:6px;">
+        <button class="modal-ok" style="flex:1;font-size:.75rem;padding:8px;" onclick="pickProfileAudio()">🎵 Загрузить аудио</button>
+        <button class="modal-cancel" id="profile-audio-remove-btn" style="flex:1;font-size:.75rem;padding:8px;display:none;" onclick="removeProfileAudio()">✕ Убрать</button>
+      </div>
+      <input type="file" id="profile-audio-input" accept="audio/*" style="display:none;" onchange="handleProfileAudio(event)">
+      <div style="font-size:.67rem;color:var(--muted);font-family:'Space Mono',monospace;">Будет видна в вашем профиле</div>
     </div>
     <div class="modal-section">Редактировать</div>
     <input class="auth-input" id="my-profile-name-input" placeholder="Отображаемое имя">
@@ -626,11 +640,16 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 <div class="modal-overlay" id="avatar-modal">
   <div class="modal">
     <h3>Изменить аватар</h3>
-    <div class="photo-upload-area">
-      <input type="file" id="avatar-file-input" accept="image/*" onchange="handleAvatarFile(event)">
-      <div class="photo-upload-text" id="avatar-upload-text">📷 Нажмите для загрузки фото</div>
+    <!-- Preview -->
+    <div style="display:flex;justify-content:center;margin:4px 0 8px;">
+      <div id="avatar-preview-el" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;overflow:hidden;"></div>
     </div>
-    <div class="modal-section">Или выбрать эмодзи</div>
+    <!-- Upload photo -->
+    <div class="photo-upload-area" onclick="document.getElementById('avatar-file-input').click()" style="cursor:pointer;">
+      <input type="file" id="avatar-file-input" accept="image/*" style="display:none;" onchange="handleAvatarFile(event)">
+      <div class="photo-upload-text" id="avatar-upload-text">📷 Нажмите чтобы загрузить фото</div>
+    </div>
+    <div class="modal-section">Или эмодзи-аватар</div>
     <div style="font-size:.72rem;color:var(--muted);">Цвет фона</div>
     <div class="av-color-grid" id="av-color-grid"></div>
     <div style="font-size:.72rem;color:var(--muted);margin-top:6px;">Эмодзи</div>
@@ -699,6 +718,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
       <div class="profile-nick-small" id="upm-nick"></div>
       <div class="profile-bio-small" id="upm-bio"></div>
     </div>
+    <div id="upm-audio-wrap" style="display:none;padding:0 4px 4px;"></div>
     <div class="invite-link-wrap" id="upm-link-wrap" style="display:none;">
       <span class="invite-link-text" id="upm-link"></span>
       <button class="copy-btn" onclick="copyUpmLink()">Копировать</button>
@@ -768,15 +788,30 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
   <div class="modal" style="max-width:460px;">
     <h3>🎨 Стикер-паки</h3>
     <div class="modal-section">Мои паки</div>
-    <div id="my-packs-list" style="max-height:200px;overflow-y:auto;"></div>
+    <div id="my-packs-list" style="max-height:180px;overflow-y:auto;"></div>
     <div class="modal-section">Создать свой пак</div>
     <input class="auth-input" id="new-pack-name" placeholder="Название пака" maxlength="30">
-    <div style="font-size:.72rem;color:var(--muted);">Стикеры — это эмодзи или картинки. Добавьте эмодзи через запятую:</div>
-    <input class="auth-input" id="new-pack-emojis" placeholder="😄,🔥,💜,🚀,..." >
+    <!-- Sticker type tabs -->
+    <div style="display:flex;gap:6px;margin-top:2px;">
+      <button class="sticker-tab active" id="stab-emoji" onclick="switchStickerCreateTab('emoji')">😄 Эмодзи</button>
+      <button class="sticker-tab" id="stab-photo" onclick="switchStickerCreateTab('photo')">🖼 Картинки</button>
+    </div>
+    <!-- Emoji tab -->
+    <div id="sticker-create-emoji-tab">
+      <div style="font-size:.72rem;color:var(--muted);">Добавьте эмодзи через запятую:</div>
+      <input class="auth-input" id="new-pack-emojis" placeholder="😄,🔥,💜,🚀,...">
+    </div>
+    <!-- Photo tab -->
+    <div id="sticker-create-photo-tab" style="display:none;">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;">Загрузите картинки (PNG/WebP, до 6 штук). Каждая будет показана квадратной.</div>
+      <div id="sticker-photo-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-height:80px;"></div>
+      <button class="modal-cancel" style="width:100%;margin-top:6px;padding:7px;font-size:.78rem;" onclick="document.getElementById('sticker-photo-input').click()">＋ Добавить картинку</button>
+      <input type="file" id="sticker-photo-input" accept="image/png,image/webp,image/gif,image/jpeg" style="display:none;" onchange="handleStickerPhoto(event)">
+    </div>
     <div class="auth-error" id="pack-create-err"></div>
-    <button class="modal-ok" onclick="createStickerPack()">Создать пак</button>
+    <button class="modal-ok" onclick="createStickerPack()">✓ Создать и опубликовать</button>
     <div class="modal-section">Паки сообщества</div>
-    <div id="community-packs-list" style="max-height:200px;overflow-y:auto;"></div>
+    <div id="community-packs-list" style="max-height:180px;overflow-y:auto;"></div>
     <div class="modal-actions"><button class="modal-cancel" onclick="closeModal('sticker-manager-modal')">Закрыть</button></div>
   </div>
 </div>
@@ -1173,7 +1208,13 @@ function renderMessages(data,chat){
     }
     // Render message content based on type
     if(msg.type==='sticker'){
-      const sEl=document.createElement('span');sEl.style.fontSize='3.5rem';sEl.style.cursor='default';sEl.textContent=msg.sticker||'';b.appendChild(sEl);
+      if(msg.stickerUrl){
+        const sImg=document.createElement('img');sImg.className='msg-sticker';sImg.src=msg.stickerUrl;sImg.style='width:130px;height:130px;object-fit:cover;border-radius:10px;display:block;cursor:pointer;';
+        sImg.onclick=ev=>{ev.stopPropagation();openLightbox(msg.stickerUrl,'image');};
+        b.appendChild(sImg);
+      }else{
+        const sEl=document.createElement('span');sEl.style.fontSize='3.5rem';sEl.style.cursor='default';sEl.textContent=msg.sticker||'';b.appendChild(sEl);
+      }
       b.style.background='transparent';b.style.border='none';b.style.padding='2px';
     }else if(msg.type==='image'&&msg.mediaUrl){
       const img=document.createElement('img');img.className='msg-image';img.src=msg.mediaUrl;img.alt='Фото';
@@ -1617,8 +1658,10 @@ function renderStickerPicker(){
     grid.innerHTML='';
     pack.stickers.forEach(s=>{
       const cell=document.createElement('div');cell.className='sticker-cell';
-      if(s.startsWith('http')){const img=document.createElement('img');img.src=s;cell.appendChild(img);}
-      else cell.textContent=s;
+      if(s.startsWith('http')){
+        const img=document.createElement('img');img.src=s;img.style='width:100%;height:100%;object-fit:cover;border-radius:6px;';
+        cell.appendChild(img);cell.style.padding='0';
+      }else{cell.textContent=s;}
       cell.onclick=()=>sendSticker(s);
       grid.appendChild(cell);
     });
@@ -1631,7 +1674,10 @@ async function sendSticker(sticker){
   if(!currentChatId)return;
   document.getElementById('sticker-picker').classList.remove('open');
   const senderName=CUdata?.name||'?';
-  await push(ref(db,`chats/${currentChatId}/messages`),{type:'sticker',sticker,uid:CU.uid,senderName,ts:Date.now()});
+  const isPhoto=sticker.startsWith('http');
+  const msgData={type:'sticker',uid:CU.uid,senderName,ts:Date.now()};
+  if(isPhoto){msgData.stickerUrl=sticker;}else{msgData.sticker=sticker;}
+  await push(ref(db,`chats/${currentChatId}/messages`),msgData);
   await update(ref(db,`chats/${currentChatId}`),{lastMsgTs:Date.now()});
 }
 
@@ -1649,6 +1695,13 @@ window.openStickerManager=()=>{
   document.getElementById('sticker-picker').classList.remove('open');
   renderMyPacksList();
   renderCommunityPacks();
+  // Reset create form
+  stickerCreateTab='emoji';stickerPhotoPending=[];
+  switchStickerCreateTab('emoji');
+  document.getElementById('new-pack-name').value='';
+  document.getElementById('new-pack-emojis').value='';
+  setErr('pack-create-err','');
+  renderStickerPhotoGrid();
   document.getElementById('sticker-manager-modal').classList.add('open');
 };
 
@@ -1693,22 +1746,80 @@ async function renderCommunityPacks(){
   }catch(e){el.innerHTML='<div style="font-size:.76rem;color:var(--danger);padding:8px;">Ошибка загрузки</div>';}
 }
 
+// Sticker photo tab state
+let stickerCreateTab='emoji';
+let stickerPhotoPending=[]; // array of {url, dataUrl} objects
+
+window.switchStickerCreateTab=tab=>{
+  stickerCreateTab=tab;
+  document.getElementById('stab-emoji').classList.toggle('active',tab==='emoji');
+  document.getElementById('stab-photo').classList.toggle('active',tab==='photo');
+  document.getElementById('sticker-create-emoji-tab').style.display=tab==='emoji'?'block':'none';
+  document.getElementById('sticker-create-photo-tab').style.display=tab==='photo'?'block':'none';
+};
+
+window.handleStickerPhoto=async e=>{
+  const file=e.target.files[0];if(!file)return;
+  if(stickerPhotoPending.length>=6){toast('✗ Максимум 6 картинок');return;}
+  if(file.size>3*1024*1024){toast('✗ Картинка до 3MB');return;}
+  // Show preview immediately with dataURL
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const dataUrl=ev.target.result;
+    stickerPhotoPending.push({dataUrl,file});
+    renderStickerPhotoGrid();
+  };
+  reader.readAsDataURL(file);
+  e.target.value='';
+};
+
+function renderStickerPhotoGrid(){
+  const grid=document.getElementById('sticker-photo-grid');if(!grid)return;
+  grid.innerHTML='';
+  stickerPhotoPending.forEach((item,i)=>{
+    const wrap=document.createElement('div');
+    wrap.style='position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:var(--surface2);border:1px solid var(--border);';
+    const img=document.createElement('img');img.src=item.dataUrl;img.style='width:100%;height:100%;object-fit:cover;';
+    const del=document.createElement('button');
+    del.style='position:absolute;top:3px;right:3px;background:rgba(0,0,0,.6);border:none;border-radius:50%;width:20px;height:20px;color:#fff;font-size:.65rem;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    del.textContent='✕';del.onclick=()=>{stickerPhotoPending.splice(i,1);renderStickerPhotoGrid();};
+    wrap.appendChild(img);wrap.appendChild(del);grid.appendChild(wrap);
+  });
+}
+
 window.createStickerPack=async()=>{
   const name=document.getElementById('new-pack-name').value.trim();
-  const emojisRaw=document.getElementById('new-pack-emojis').value.trim();
   setErr('pack-create-err','');
   if(!name){setErr('pack-create-err','✗ Введите название');return;}
-  if(!emojisRaw){setErr('pack-create-err','✗ Добавьте стикеры');return;}
-  // Parse: split by comma or space, filter non-empty
-  const stickers=[...new Set(emojisRaw.split(/[,\s]+/).map(s=>s.trim()).filter(s=>s.length>0))].slice(0,30);
-  if(!stickers.length){setErr('pack-create-err','✗ Нет стикеров');return;}
+  let stickers=[];
+  if(stickerCreateTab==='emoji'){
+    const emojisRaw=document.getElementById('new-pack-emojis').value.trim();
+    if(!emojisRaw){setErr('pack-create-err','✗ Добавьте эмодзи');return;}
+    stickers=[...new Set(emojisRaw.split(/[,\s]+/).map(s=>s.trim()).filter(s=>s.length>0))].slice(0,30);
+    if(!stickers.length){setErr('pack-create-err','✗ Нет стикеров');return;}
+  } else {
+    if(!stickerPhotoPending.length){setErr('pack-create-err','✗ Добавьте хотя бы одну картинку');return;}
+    toast('⏳ Загрузка картинок...');
+    try{
+      const uploaded=[];
+      for(let i=0;i<stickerPhotoPending.length;i++){
+        const {file}=stickerPhotoPending[i];
+        const path=`stickers/${CU.uid}/${Date.now()}_${i}_${file.name}`;
+        const storRef=sref(storage,path);
+        await uploadBytes(storRef,file,{contentType:file.type});
+        const url=await getDownloadURL(storRef);
+        uploaded.push(url);
+      }
+      stickers=uploaded;
+    }catch(err){console.error(err);setErr('pack-create-err','✗ Ошибка загрузки картинок');return;}
+  }
   const packId='pack_'+CU.uid+'_'+Date.now();
-  const packData={id:packId,name,stickers,creator:CUdata?.nick||CUdata?.name||'?',createdAt:Date.now(),creatorUid:CU.uid};
-  // Save to community packs in DB
+  const packData={id:packId,name,stickers,packType:stickerCreateTab,creator:CUdata?.nick||CUdata?.name||'?',createdAt:Date.now(),creatorUid:CU.uid};
   await set(ref(db,`stickerPacks/${packId}`),packData);
-  // Add to local
-  const my=getMyPacks();my.push({id:packId,name,stickers});saveMyPacks(my);userStickerPacks=my;
-  document.getElementById('new-pack-name').value='';document.getElementById('new-pack-emojis').value='';
+  const my=getMyPacks();my.push({id:packId,name,stickers,packType:stickerCreateTab});saveMyPacks(my);userStickerPacks=my;
+  document.getElementById('new-pack-name').value='';
+  document.getElementById('new-pack-emojis').value='';
+  stickerPhotoPending=[];renderStickerPhotoGrid();
   renderMyPacksList();renderCommunityPacks();
   toast('✓ Пак создан и опубликован!');
 };
@@ -1997,7 +2108,69 @@ window.openMyProfile=()=>{
   // Photos
   myExtraPhotos=getMyPhotos();
   renderPhotoGallery('my-photos-scroll','my-photo-dots',myExtraPhotos);
+  // Profile audio
+  renderProfileAudioSection(CUdata.profileAudio||null);
   document.getElementById('my-profile-modal').classList.add('open');
+};
+
+// ── PROFILE AUDIO ──
+function renderProfileAudioSection(audioData){
+  const wrap=document.getElementById('profile-audio-player-wrap');
+  const removeBtn=document.getElementById('profile-audio-remove-btn');
+  if(!wrap)return;
+  wrap.innerHTML='';
+  if(audioData&&audioData.url){
+    wrap.style.display='block';
+    if(removeBtn)removeBtn.style.display='block';
+    const player=buildProfileAudioPlayer(audioData.url,audioData.name||'Аудио',audioData.duration||0);
+    wrap.appendChild(player);
+  }else{
+    wrap.style.display='none';
+    if(removeBtn)removeBtn.style.display='none';
+  }
+}
+function buildProfileAudioPlayer(url,name,dur){
+  const wrap=document.createElement('div');
+  wrap.style='display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;';
+  const icon=document.createElement('span');icon.textContent='🎵';icon.style='font-size:1.3rem;flex-shrink:0;';
+  const info=document.createElement('div');info.style='flex:1;min-width:0;';
+  const nameEl=document.createElement('div');nameEl.style='font-size:.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';nameEl.textContent=name;
+  const durEl=document.createElement('div');durEl.style='font-size:.65rem;color:var(--muted);font-family:"Space Mono",monospace;';durEl.textContent=formatAudioDur(dur);
+  info.appendChild(nameEl);info.appendChild(durEl);
+  const audio=new Audio(url);
+  const playBtn=document.createElement('button');playBtn.style='background:var(--accent);border:none;border-radius:50%;width:30px;height:30px;color:#fff;font-size:.85rem;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;';
+  playBtn.textContent='▶';
+  audio.addEventListener('ended',()=>playBtn.textContent='▶');
+  playBtn.onclick=()=>{if(audio.paused){audio.play();playBtn.textContent='⏸';}else{audio.pause();playBtn.textContent='▶';}};
+  wrap.appendChild(icon);wrap.appendChild(info);wrap.appendChild(playBtn);
+  return wrap;
+}
+window.pickProfileAudio=()=>document.getElementById('profile-audio-input').click();
+window.handleProfileAudio=async e=>{
+  const file=e.target.files[0];if(!file)return;
+  if(file.size>15*1024*1024){toast('✗ Максимум 15MB');return;}
+  toast('⏳ Загрузка музыки...');
+  try{
+    const path=`profileAudio/${CU.uid}/${Date.now()}_${file.name}`;
+    const storRef=sref(storage,path);
+    await uploadBytes(storRef,file,{contentType:file.type});
+    const url=await getDownloadURL(storRef);
+    // Get duration
+    const tempAudio=new Audio(url);
+    const dur=await new Promise(res=>{tempAudio.onloadedmetadata=()=>res(Math.round(tempAudio.duration));tempAudio.onerror=()=>res(0);});
+    const audioData={url,name:file.name.replace(/\.[^.]+$/,''),duration:dur};
+    await update(ref(db,`users/${CU.uid}`),{profileAudio:audioData});
+    CUdata.profileAudio=audioData;
+    renderProfileAudioSection(audioData);
+    toast('✓ Музыка добавлена!');
+  }catch(err){console.error(err);toast('✗ Ошибка загрузки');}
+  e.target.value='';
+};
+window.removeProfileAudio=async()=>{
+  await update(ref(db,`users/${CU.uid}`),{profileAudio:null});
+  CUdata.profileAudio=null;
+  renderProfileAudioSection(null);
+  toast('✓ Музыка убрана');
 };
 window.copyMyLink=()=>{const t=document.getElementById('my-invite-link').textContent;if(t.startsWith('http'))navigator.clipboard.writeText(t).then(()=>toast('✓ Скопировано'));};
 window.saveProfile=async()=>{
@@ -2086,17 +2259,31 @@ function removeMyPhoto(idx){
 // ─ AVATAR PICKER ─
 window.openAvatarPicker=()=>{
   avatarPendingData=null;
-  document.getElementById('avatar-upload-text').textContent='📷 Нажмите для загрузки';
+  document.getElementById('avatar-upload-text').textContent='📷 Нажмите чтобы загрузить фото';
   document.getElementById('avatar-file-input').value='';
+  // Show current avatar in preview
+  const previewEl=document.getElementById('avatar-preview-el');
+  if(previewEl&&CUdata)renderAvInEl(previewEl,CUdata.avatar,CUdata.name,80);
   const cg=document.getElementById('av-color-grid');cg.innerHTML='';
-  COLORS.forEach(c=>{const d=document.createElement('div');d.className='av-color'+(c===pickerColor?' sel':'');d.style.background=c;d.onclick=()=>{pickerColor=c;cg.querySelectorAll('.av-color').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');avatarPendingData=null;};cg.appendChild(d);});
+  COLORS.forEach(color=>{const d=document.createElement('div');d.className='av-color'+(color===pickerColor?' sel':'');d.style.background=color;d.onclick=()=>{pickerColor=color;cg.querySelectorAll('.av-color').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');avatarPendingData=null;updateAvatarPreview();};cg.appendChild(d);});
   const eg=document.getElementById('av-emoji-grid');eg.innerHTML='';
-  EMOJIS.forEach(e=>{const d=document.createElement('div');d.className='av-emoji'+(e===pickerEmoji?' sel':'');d.textContent=e;d.onclick=()=>{pickerEmoji=e;eg.querySelectorAll('.av-emoji').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');avatarPendingData=null;};eg.appendChild(d);});
+  EMOJIS.forEach(em=>{const d=document.createElement('div');d.className='av-emoji'+(em===pickerEmoji?' sel':'');d.textContent=em;d.onclick=()=>{pickerEmoji=em;eg.querySelectorAll('.av-emoji').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');avatarPendingData=null;updateAvatarPreview();};eg.appendChild(d);});
   document.getElementById('avatar-modal').classList.add('open');
 };
+function updateAvatarPreview(){
+  const previewEl=document.getElementById('avatar-preview-el');if(!previewEl)return;
+  if(avatarPendingData){
+    previewEl.innerHTML='';previewEl.style.background='transparent';
+    const img=document.createElement('img');img.src=avatarPendingData;img.style='width:100%;height:100%;object-fit:cover;border-radius:50%;';previewEl.appendChild(img);
+  }else{
+    const img=previewEl.querySelector('img');if(img)img.remove();
+    previewEl.style.background=pickerColor;previewEl.style.fontSize='2rem';previewEl.textContent=pickerEmoji;
+  }
+}
 window.handleAvatarFile=e=>{
   const file=e.target.files[0];if(!file)return;
   if(file.size>5*1024*1024){toast('✗ Файл слишком большой');return;}
+  document.getElementById('avatar-upload-text').textContent='✓ Фото выбрано';
   cropTarget='user';openCropModal(file);
 };
 window.saveAvatar=async()=>{
@@ -2175,7 +2362,7 @@ window.applyCrop=()=>{
   const ss=cropBoxSize*(cropImgW/iRect.width);
   ctx.drawImage(img,sx,sy,ss,ss,0,0,size,size);
   const dataUrl=canvas.toDataURL('image/jpeg',0.85);
-  if(cropTarget==='user'){avatarPendingData=dataUrl;document.getElementById('avatar-upload-text').textContent='✓ Фото выбрано';}
+  if(cropTarget==='user'){avatarPendingData=dataUrl;document.getElementById('avatar-upload-text').textContent='✓ Фото выбрано';updateAvatarPreview();}
   else{groupAvatarPendingData=dataUrl;document.getElementById('group-photo-text').textContent='✓ Фото выбрано';}
   closeModal('crop-modal');URL.revokeObjectURL(cropRawData);toast('✓ Кадрировано');
 };
@@ -2187,6 +2374,15 @@ function showUserModal(u){
   document.getElementById('upm-name').textContent=u.name;
   document.getElementById('upm-nick').textContent='@'+(u.nick||u.nickLower||'');
   document.getElementById('upm-bio').textContent=u.bio||'';
+  // Profile audio for viewed user
+  const upmAudioWrap=document.getElementById('upm-audio-wrap');
+  if(upmAudioWrap){
+    upmAudioWrap.innerHTML='';
+    if(u.profileAudio&&u.profileAudio.url){
+      upmAudioWrap.style.display='block';
+      upmAudioWrap.appendChild(buildProfileAudioPlayer(u.profileAudio.url,u.profileAudio.name||'Аудио',u.profileAudio.duration||0));
+    }else upmAudioWrap.style.display='none';
+  }
   const nick=u.nick||u.nickLower||'';
   const lw=document.getElementById('upm-link-wrap');
   if(nick){lw.style.display='flex';document.getElementById('upm-link').textContent=location.origin+location.pathname+'?adduser='+nick;}
