@@ -705,7 +705,7 @@ import {
   signOut, onAuthStateChanged, updateProfile, setPersistence, browserLocalPersistence
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
-  getDatabase, ref, set, get, push, onValue, off,
+  getDatabase, ref, set, get, push, onValue,
   update, query, orderByChild, limitToLast, equalTo
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
@@ -723,14 +723,16 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-// Сессия сохраняется навсегда в localStorage
 setPersistence(auth, browserLocalPersistence).catch(console.error);
 
 let currentUser = null;
 let currentChatId = null;
 let chatsData = {};
-let msgListener = null;
-let chatsListener = null;
+
+// Правильное управление слушателями Firebase
+let activeMsgUnsubscribe = null;
+let userChatsUnsubscribe = null;
+let lastMsgUnsubscribes = {};
 
 function setBtnLoading(id, loading, label) {
   const btn = document.getElementById(id);
@@ -770,7 +772,6 @@ window.doRegister = async () => {
       uid: cred.user.uid, name, nameLower: name.toLowerCase(), email, createdAt: Date.now()
     });
   } catch(e) {
-    console.error('Register error:', e);
     showErr('reg-error','✗ ' + translateError(e.code));
     setBtnLoading('reg-btn', false, 'Создать аккаунт →');
   }
@@ -792,16 +793,20 @@ window.doLogin = async () => {
     }
     await signInWithEmailAndPassword(auth, emailToUse, pass);
   } catch(e) {
-    console.error('Login error:', e);
     showErr('login-error','✗ ' + translateError(e.code));
     setBtnLoading('login-btn', false, 'Войти →');
   }
 };
 
 window.doLogout = async () => {
-  if (msgListener && currentChatId) off(ref(db, `chats/${currentChatId}/messages`));
-  if (chatsListener) off(ref(db, `userChats/${currentUser?.uid}`));
-  currentChatId = null; chatsData = {};
+  // Очищаем все активные слушатели перед выходом
+  if (activeMsgUnsubscribe) activeMsgUnsubscribe();
+  if (userChatsUnsubscribe) userChatsUnsubscribe();
+  Object.values(lastMsgUnsubscribes).forEach(unsub => unsub());
+  lastMsgUnsubscribes = {};
+  
+  currentChatId = null; 
+  chatsData = {};
   await signOut(auth);
 };
 
@@ -826,20 +831,36 @@ onAuthStateChanged(auth, user => {
 
 function loadChats() {
   const userChatsRef = ref(db, `userChats/${currentUser.uid}`);
-  chatsListener = onValue(userChatsRef, async snap => {
+  userChatsUnsubscribe = onValue(userChatsRef, async snap => {
     const data = snap.val() || {};
     const chatIds = Object.keys(data);
-    if (!chatIds.length) { renderChatList({}); return; }
-    const results = await Promise.all(chatIds.map(id => get(ref(db, `chats/${id}`))));
-    chatsData = {};
-    results.forEach(r => { if (r.exists()) chatsData[r.key] = r.val(); });
+    
+    if (!chatIds.length) { 
+        renderChatList({}); 
+        return; 
+    }
+
+    // Загружаем только новые чаты, которых еще нет в локальном state
+    const missingIds = chatIds.filter(id => !chatsData[id]);
+    if (missingIds.length > 0) {
+        const results = await Promise.all(missingIds.map(id => get(ref(db, `chats/${id}`))));
+        results.forEach(r => { if (r.exists()) chatsData[r.key] = r.val(); });
+    }
+    
+    renderChatList(chatsData);
+
+    // Вешаем слушатели на последнее сообщение только для новых чатов
     chatIds.forEach(id => {
-      const lastRef = query(ref(db, `chats/${id}/messages`), orderByChild('ts'), limitToLast(1));
-      onValue(lastRef, s => {
-        const msgs = s.val();
-        if (msgs && chatsData[id]) chatsData[id].lastMsg = Object.values(msgs)[0];
-        renderChatList(chatsData);
-      });
+      if (!lastMsgUnsubscribes[id]) {
+        const lastRef = query(ref(db, `chats/${id}/messages`), orderByChild('ts'), limitToLast(1));
+        lastMsgUnsubscribes[id] = onValue(lastRef, s => {
+          const msgs = s.val();
+          if (msgs && chatsData[id]) {
+              chatsData[id].lastMsg = Object.values(msgs)[0];
+          }
+          renderChatList(chatsData);
+        });
+      }
     });
   });
 }
@@ -847,11 +868,17 @@ function loadChats() {
 function renderChatList(data) {
   const list = document.getElementById('chat-list');
   const search = (document.getElementById('search-input').value || '').toLowerCase();
+  
   const sorted = Object.entries(data)
     .filter(([,c]) => getChatName(c).toLowerCase().includes(search))
     .sort(([,a],[,b]) => (b.lastMsg?.ts || b.createdAt || 0) - (a.lastMsg?.ts || a.createdAt || 0));
+    
   list.innerHTML = '';
-  if (!sorted.length) { list.innerHTML = '<div style="padding:20px 16px;font-size:.78rem;color:var(--text-muted);font-family:Space Mono,monospace">Нет чатов</div>'; return; }
+  if (!sorted.length) { 
+      list.innerHTML = '<div style="padding:20px 16px;font-size:.78rem;color:var(--text-muted);font-family:Space Mono,monospace">Нет чатов</div>'; 
+      return; 
+  }
+  
   sorted.forEach(([id, chat]) => {
     const name = getChatName(chat);
     const item = document.createElement('div');
@@ -872,17 +899,18 @@ function renderChatList(data) {
 window.filterChats = () => renderChatList(chatsData);
 
 window.openChat = (chatId, chat) => {
-  if (msgListener && currentChatId) off(ref(db, `chats/${currentChatId}/messages`));
   currentChatId = chatId;
   document.getElementById('sidebar').classList.add('hidden');
   document.getElementById('chat-area').classList.add('visible');
   document.getElementById('empty-placeholder').style.display = 'none';
   document.getElementById('active-chat').style.display = 'flex';
+  
   const name = getChatName(chat);
   document.getElementById('topbar-name').textContent = name;
   document.getElementById('topbar-avatar').textContent = name.charAt(0).toUpperCase();
   document.getElementById('topbar-avatar').style.background = strToColor(name);
   document.getElementById('topbar-status').textContent = chat.type==='group' ? `${Object.keys(chat.members||{}).length} участников` : 'онлайн';
+  
   document.querySelectorAll('.chat-item').forEach(el => el.classList.toggle('active', el.dataset.chatId===chatId));
   loadMessages(chatId);
 };
@@ -895,8 +923,15 @@ window.goBack = () => {
 function loadMessages(chatId) {
   const msgsEl = document.getElementById('messages');
   msgsEl.innerHTML = '<div style="flex:1"></div>';
+  
+  // Убиваем старый слушатель сообщений, если он был
+  if (activeMsgUnsubscribe) {
+      activeMsgUnsubscribe();
+      activeMsgUnsubscribe = null;
+  }
+  
   const msgsRef = query(ref(db, `chats/${chatId}/messages`), orderByChild('ts'), limitToLast(100));
-  msgListener = onValue(msgsRef, snap => renderMessages(snap.val() || {}));
+  activeMsgUnsubscribe = onValue(msgsRef, snap => renderMessages(snap.val() || {}));
 }
 
 function renderMessages(data) {
@@ -905,6 +940,7 @@ function renderMessages(data) {
   msgsEl.innerHTML = '';
   const msgs = Object.values(data).sort((a,b) => a.ts - b.ts);
   let lastDate = null;
+  
   msgs.forEach(msg => {
     const dateStr = new Date(msg.ts).toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
     if (dateStr !== lastDate) {
@@ -971,25 +1007,36 @@ window.createChat = async () => {
   const isGroup = document.getElementById('is-group-chat').checked;
   const err = document.getElementById('new-chat-error');
   if (!input) { err.textContent='✗ Введите данные'; return; }
+  
   if (isGroup) {
     const chatRef = push(ref(db,'chats'));
     await set(chatRef, { type:'group', name:input, members:{[currentUser.uid]:true}, createdBy:currentUser.uid, createdAt:Date.now() });
     await set(ref(db, `userChats/${currentUser.uid}/${chatRef.key}`), true);
     closeNewChatModal();
   } else {
-    const usersSnap = await get(ref(db,'users'));
-    if (!usersSnap.exists()) { err.textContent='✗ Пользователь не найден'; return; }
+    // Точечный поиск по базе вместо выгрузки всех пользователей
     let targetUser = null;
-    usersSnap.forEach(child => {
-      const u = child.val();
-      if (u.email===input || u.nameLower===input.toLowerCase()) targetUser = u;
-    });
+    if (input.includes('@')) {
+        const snap = await get(query(ref(db,'users'), orderByChild('email'), equalTo(input)));
+        if (snap.exists()) targetUser = Object.values(snap.val())[0];
+    } else {
+        const snap = await get(query(ref(db,'users'), orderByChild('nameLower'), equalTo(input.toLowerCase())));
+        if (snap.exists()) targetUser = Object.values(snap.val())[0];
+    }
+    
     if (!targetUser) { err.textContent='✗ Пользователь не найден'; return; }
     if (targetUser.uid===currentUser.uid) { err.textContent='✗ Нельзя создать чат с собой'; return; }
+    
     const existing = Object.entries(chatsData).find(([,c]) => c.type==='direct' && c.members?.[currentUser.uid] && c.members?.[targetUser.uid]);
     if (existing) { closeNewChatModal(); openChat(existing[0], existing[1]); return; }
+    
     const chatRef = push(ref(db,'chats'));
-    await set(chatRef, { type:'direct', members:{[currentUser.uid]:true,[targetUser.uid]:true}, names:{[currentUser.uid]:currentUser.displayName,[targetUser.uid]:targetUser.name}, createdAt:Date.now() });
+    await set(chatRef, { 
+        type:'direct', 
+        members:{[currentUser.uid]:true,[targetUser.uid]:true}, 
+        names:{[currentUser.uid]:currentUser.displayName,[targetUser.uid]:targetUser.name}, 
+        createdAt:Date.now() 
+    });
     await set(ref(db, `userChats/${currentUser.uid}/${chatRef.key}`), true);
     await set(ref(db, `userChats/${targetUser.uid}/${chatRef.key}`), true);
     closeNewChatModal();
@@ -1003,6 +1050,7 @@ window.showMembers = () => {
 };
 
 function getChatName(chat) {
+  if (!chat) return 'Чат';
   if (chat.type==='group') return chat.name || 'Группа';
   if (chat.type==='direct' && chat.names) {
     const other = Object.entries(chat.names).find(([uid]) => uid!==currentUser?.uid);
