@@ -1158,10 +1158,7 @@ input:checked+.toggle-slider::before{transform:translateX(18px);}
   </div>
 </div>
 
-// ==========================================
-// СЕКЦИЯ СТИКЕРОВ (ИСПРАВЛЕННАЯ)
-// ==========================================
-
+</div>
 let addStickerPhotoPending = []; 
 
 window.switchStickerTab = (tab) => {
@@ -1178,33 +1175,31 @@ window.switchStickerTab = (tab) => {
 window.renderStickerPicker = async () => {
   const container = document.getElementById('sticker-picker-content');
   if(!container) return;
-  
-  const myPacks = getMyPacks();
-  if(!myPacks.length) {
-    container.innerHTML = '<div class="empty-info">У вас нет стикерпаков. <br><span style="color:var(--accent); cursor:pointer" onclick="openModal(\'sticker-manager-modal\')">Создать?</span></div>';
+  const my = getMyPacks();
+  if(!my.length) {
+    container.innerHTML = '<div class="empty-info">Нет паков</div>';
     return;
   }
-
   container.innerHTML = '';
-  myPacks.forEach(pack => {
-    const section = document.createElement('div');
-    section.className = 'sticker-picker-section';
-    section.innerHTML = `<div class="sticker-section-title">${pack.name}</div>`;
-    
+  my.forEach(pack => {
+    const div = document.createElement('div');
+    div.innerHTML = `<div style="padding:5px;font-size:12px;opacity:0.6">${pack.name}</div>`;
     const grid = document.createElement('div');
     grid.className = 'sticker-grid-mini';
-    
-    (pack.stickers || []).forEach(stkUrl => {
+    (pack.stickers||[]).forEach(url => {
       const img = document.createElement('img');
-      img.src = stkUrl;
-      img.onclick = () => doSendSticker(stkUrl);
+      img.src = url;
+      img.onclick = () => doSendSticker(url);
       grid.appendChild(img);
     });
-    
-    section.appendChild(grid);
-    container.appendChild(section);
+    div.appendChild(grid);
+    container.appendChild(div);
   });
 };
+
+function getMyPacks() {
+  try { return JSON.parse(localStorage.getItem('myStickerPacks') || '[]'); } catch(e) { return []; }
+}
 
 // Добавление фото в превью при создании или пополнении пака
 window.handleAddStickerPhoto = (e) => {
@@ -1332,7 +1327,7 @@ function getMyPacks() {
 function saveMyPacks(data) {
   localStorage.setItem('myStickerPacks', JSON.stringify(data));
 }
-
+</div>
 <!-- Video Note Modal -->
 <div class="modal-overlay" id="videonote-modal">
   <div class="modal" style="align-items:center;gap:12px;max-width:340px;">
