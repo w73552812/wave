@@ -994,45 +994,29 @@ input:checked+.toggle-slider::before{transform:translateX(18px);}
 
 <!-- My Profile Modal -->
 <div class="modal-overlay" id="my-profile-modal">
-  <div class="modal">
-    <h3>Мой профиль</h3>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0 4px;">
-      <div style="position:relative;">
-        <div class="profile-main-av" id="my-profile-av" onclick="openAvatarPicker()"></div>
-        <div onclick="openAvatarPicker()" style="position:absolute;bottom:0;right:0;width:22px;height:22px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.75rem;border:2px solid var(--surface);">📷</div>
-      </div>
-      <div class="profile-name-big" id="my-profile-name"></div>
-      <div class="profile-nick-small" id="my-profile-nick"></div>
+  <div class="modal" style="max-width:340px;">
+    <h3 style="margin-top:0">Настройки профиля</h3>
+    
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <input type="text" id="my-profile-nick-input" placeholder="Ваш ник" class="auth-input">
+      <input type="email" id="edit-email-input" placeholder="Новая почта (необяз.)" class="auth-input">
+      <input type="password" id="edit-password-input" placeholder="Новый пароль (необяз.)" class="auth-input">
+      <textarea id="my-profile-about" placeholder="О себе..." class="auth-input" style="height:60px;resize:none;"></textarea>
     </div>
-    <div class="modal-section">Фото профиля</div>
-    <div style="position:relative;">
-      <div class="profile-photos-scroll" id="my-photos-scroll" style="height:120px;"></div>
-      <div class="profile-photo-dots" id="my-photo-dots"></div>
-      <button class="profile-add-photo-btn" onclick="document.getElementById('my-extra-photo-input').click()" title="Добавить фото">＋</button>
-      <input type="file" id="my-extra-photo-input" accept="image/*" style="display:none;" onchange="handleMyExtraPhoto(event)">
+
+    <div style="margin: 15px 0; display:flex; justify-content:space-between; align-items:center;">
+      <span>Темная тема</span>
+      <button onclick="toggleTheme()" id="theme-btn" class="modal-ok" style="padding:5px 10px; width:auto;">Вкл/Выкл</button>
     </div>
-    <div class="modal-section">Редактировать</div>
-    <input class="auth-input" id="my-profile-name-input" placeholder="Отображаемое имя">
-    <div style="position:relative;">
-      <input class="auth-input" id="my-profile-nick-input" placeholder="@username" maxlength="20" style="padding-right:40px;">
-      <button onclick="openEmojiForNick()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.1rem;" title="Добавить смайлик в ник">😊</button>
+
+    <div id="profile-save-err" class="error-msg"></div>
+
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:15px;">
+      <button class="modal-ok" onclick="saveProfileFull()">💾 Сохранить изменения</button>
+      <button class="modal-cancel" onclick="closeModal('my-profile-modal')">Закрыть</button>
+      <hr style="width:100%; border:0; border-top:1px solid var(--border); margin:10px 0;">
+      <button class="modal-cancel" style="color:#ff4d4d; border-color:#ff4d4d;" onclick="doLogout()">🚪 Выйти из аккаунта</button>
     </div>
-    <textarea class="auth-input" id="my-profile-bio-input" placeholder="О себе..." maxlength="300" rows="3" style="resize:none;"></textarea>
-    <div class="modal-section">🎵 Музыка профиля</div>
-    <div id="profile-audio-player-wrap" style="display:none;margin-bottom:6px;"></div>
-    <div style="display:flex;gap:6px;">
-      <button class="modal-ok" style="flex:1;font-size:.75rem;padding:8px;" onclick="pickProfileAudio()">🎵 Загрузить аудио</button>
-      <button class="modal-cancel" id="profile-audio-remove-btn" style="flex:1;font-size:.75rem;padding:8px;display:none;" onclick="removeProfileAudio()">✕ Убрать</button>
-    </div>
-    <input type="file" id="profile-audio-input" accept="audio/*" style="display:none;" onchange="handleProfileAudio(event)">
-    <div class="auth-error" id="profile-save-err"></div>
-    <button class="modal-ok" onclick="saveProfile()">💾 Сохранить профиль</button>
-    <div class="modal-section">Моя ссылка</div>
-    <div class="invite-link-wrap">
-      <span class="invite-link-text" id="my-invite-link"></span>
-      <button class="copy-btn" onclick="copyMyLink()">Копировать</button>
-    </div>
-    <div class="modal-actions"><button class="modal-cancel" onclick="closeModal('my-profile-modal')">Закрыть</button></div>
   </div>
 </div>
 
@@ -1541,12 +1525,73 @@ window.applyTheme = theme => {
   if(icon) icon.textContent = theme === 'light' ? '☀️' : '🌙';
   if(title) title.textContent = theme === 'light' ? 'Светлая тема' : 'Тёмная тема';
 };
-window.toggleTheme = () => applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
-(function initTheme() {
-  const saved = localStorage.getItem('wave_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
-  currentTheme = saved;
-})();
+// --- ЛОГИКА ПРОФИЛЯ И НАСТРОЕК ---
+
+window.toggleTheme = () => {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('wave-theme', next);
+  toast(`Тема: ${next === 'dark' ? 'Темная' : 'Светлая'}`);
+};
+
+window.saveProfileFull = async () => {
+  const newNick = document.getElementById('my-profile-nick-input').value.trim();
+  const newAbout = document.getElementById('my-profile-about').value.trim();
+  const newEmail = document.getElementById('edit-email-input').value.trim();
+  const newPass = document.getElementById('edit-password-input').value.trim();
+  
+  try {
+    // Обновляем ник и "О себе" в БД
+    if(newNick || newAbout !== undefined) {
+      await update(ref(db, 'users/' + CU.uid), {
+        nick: newNick || CUdata.nick,
+        about: newAbout || ""
+      });
+    }
+
+    // Смена почты (Firebase Auth)
+    if(newEmail && newEmail !== CU.email) {
+      await updateEmail(CU, newEmail);
+    }
+
+    // Смена пароля (Firebase Auth)
+    if(newPass) {
+      await updatePassword(CU, newPass);
+    }
+
+    toast('✓ Профиль обновлен');
+    closeModal('my-profile-modal');
+  } catch (e) {
+    console.error(e);
+    document.getElementById('profile-save-err').textContent = 'Ошибка: ' + e.message;
+  }
+};
+
+window.doLogout = async () => {
+  if(!confirm('Вы уверены, что хотите выйти?')) return;
+  try {
+    await signOut(auth);
+    location.reload(); // Перезагрузка для полной очистки состояния
+  } catch (e) {
+    toast('Ошибка при выходе');
+  }
+};
+
+// Исправленный doLogin (вставь его сюда, чтобы он точно определился)
+window.doLogin = async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  const errEl = document.getElementById('login-error');
+  if(!email || !pass) { errEl.textContent = '✗ Заполните поля'; return; }
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+    closeModal('auth-modal');
+  } catch (e) {
+    errEl.textContent = '✗ Ошибка: ' + e.message;
+  }
+};
 
 // ══════════════ AUTH TABS ══════════════
 window.setAuthTab = tab => {
