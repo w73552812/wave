@@ -1158,7 +1158,52 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
   </div>
 </div>
 
+<script>
+// ── STUB: Makes onclick= handlers work before module loads ──
+// Module scripts are deferred; this ensures no ReferenceError on early clicks
+(function(){
+  var QUEUE = [];
+  var STUBS = ['toggleAuth','doLogin','doRegister','doLogout',
+    'openNewChatModal','closeModal','createChat','openChatProfile',
+    'sendMessage','handleKey','autoResize','toggleEmojiPicker',
+    'filterEmojis','openAttachMenu','handleMediaFile','handleFileInput',
+    'toggleRecord','startVideoNote','closeVideoNote','openLightbox',
+    'closeLightbox','cancelReply','switchTab','searchUsers',
+    'openMyProfile','saveProfile','openFavoritesChat','toggleChatFavorite',
+    'shareInvite','filterChats','openNewChannelModal','createChannel',
+    'openPostComposer','publishPost','sendComment','toggleChannelPanel',
+    'toggleChannelEdit','saveChannelEdit','shareChannelLink','leaveChannel',
+    'backFromChannel','handlePostMedia','clearPostMedia','installPWA',
+    'requestPushPermission','addPollOpt','removePollOpt','openPollModal',
+    'sendPoll','openGifPicker','onGifSearch','sendGif','copyMyLink',
+    'openGroupAvatarModal','saveGroupAvatar','confirmDeleteGroup',
+    'addMemberFromPanel','removeMemberFromPanel','toggleGroupPanel',
+    'saveGroupSettings','editMyDescription','saveDescription',
+    'openAvatarModal','saveAvatar','addMyPhoto','removeMyPhoto',
+    'applyCrop','insertEmojiChar','goBack','filterEmojis'];
+  STUBS.forEach(function(name){
+    if(typeof window[name]==='undefined'){
+      window[name]=function(){
+        var args=Array.from(arguments);
+        QUEUE.push({fn:name,args:args});
+      };
+    }
+  });
+  // Replay queued calls once module signals ready
+  window.__moduleReady=function(){
+    QUEUE.forEach(function(q){
+      if(typeof window[q.fn]==='function'){
+        window[q.fn].apply(null,Array.from(q.args));
+      }
+    });
+    QUEUE=[];
+  };
+})();
+</script>
 <script type="module">
+// Signal stubs that real functions are now available
+// Use setTimeout(0) to let all window.X = ... assignments run first
+setTimeout(()=>window.__moduleReady?.(), 0);
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -3028,20 +3073,7 @@ window.shareInvite=()=>{
 };
 
 // ─ INVITE PARAMS ─
-async function checkInviteParam(){
-  const p=new URLSearchParams(location.search);
-  const adduser=p.get('adduser'),joingroup=p.get('joingroup');
-  if(adduser){history.replaceState({},'',location.pathname);const u=await findUser(adduser);if(u)showUserModal(u);else toast('✗ Пользователь не найден');}
-  if(joingroup){
-    history.replaceState({},'',location.pathname);
-    const snap=await get(ref(db,`chats/${joingroup}`));
-    if(snap.exists()&&snap.val().type==='group'){
-      await update(ref(db,`chats/${joingroup}/members`),{[CU.uid]:true});
-      await set(ref(db,`userChats/${CU.uid}/${joingroup}`),true);
-      toast('✓ Вступили в группу: '+snap.val().name);
-    }else toast('✗ Группа не найдена');
-  }
-}
+// checkInviteParam — defined below (unified version with channel support)
 
 function showEmpty(){document.getElementById('empty-placeholder').style.display='flex';document.getElementById('active-chat').style.display='none';}
 
@@ -4117,8 +4149,7 @@ window.shareChannelLink=()=>{
   navigator.clipboard.writeText(link).then(()=>toast('✓ Ссылка скопирована!')).catch(()=>prompt('Ссылка на канал:',link));
 };
 
-// Handle ?joinchannel= URL param
-const _origCheckInvite=typeof checkInviteParam==='function'?checkInviteParam:null;
+// Handle all invite URL params (adduser, joingroup, joinchannel)
 async function checkInviteParam(){
   const p=new URLSearchParams(location.search);
   const joinchannel=p.get('joinchannel');
