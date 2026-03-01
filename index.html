@@ -2962,9 +2962,6 @@ async function renderCommunityPacks(){
   }catch(e){el.innerHTML='<div style="font-size:.76rem;color:var(--danger);padding:8px;">Ошибка загрузки</div>';}
 }
 
-// Sticker photo tab state
-let stickerCreateTab='emoji';
-let stickerPhotoPending=[]; // array of {url, dataUrl} objects
 
 window.switchStickerCreateTab=tab=>{
   stickerCreateTab=tab;
