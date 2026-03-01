@@ -3650,11 +3650,6 @@ async function checkInviteParam(){
 
 function showEmpty(){document.getElementById('empty-placeholder').style.display='flex';document.getElementById('active-chat').style.display='none';}
 
-function xlate(code){
-  const m={'auth/email-already-in-use':'Email занят','auth/invalid-email':'Неверный email','auth/weak-password':'Слабый пароль','auth/user-not-found':'Не найден','auth/wrong-password':'Неверный пароль','auth/invalid-credential':'Неверный логин/пароль','auth/too-many-requests':'Слишком много попыток','auth/network-request-failed':'Нет интернета'};
-  return m[code]||('Ошибка: '+code);
-}
-
 document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');}));
 document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 document.getElementById('reg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doRegister();});
