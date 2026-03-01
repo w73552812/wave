@@ -115,7 +115,9 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 #chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);background-image:radial-gradient(ellipse 50% 40% at 80% 10%,rgba(124,58,237,.07),transparent);overflow:hidden;}
 .chat-topbar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--surface);flex-shrink:0;}
 .chat-topbar-name{font-size:.95rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.chat-topbar-status{font-size:.68rem;color:var(--online);font-family:'Space Mono',monospace;}
+.chat-topbar-status{font-size:.68rem;color:var(--muted);font-family:'Space Mono',monospace;transition:color .2s;}
+.chat-topbar-status.status-online{color:var(--online);}
+.chat-topbar-status.status-lastseen{color:var(--muted);}
 .topbar-actions{margin-left:auto;display:flex;gap:6px;flex-shrink:0;}
 .icon-btn{background:none;border:1px solid var(--border);border-radius:8px;padding:6px 9px;color:var(--muted);cursor:pointer;font-size:.85rem;transition:border-color .2s,color .2s;white-space:nowrap;}
 .icon-btn:hover{border-color:var(--accent2);color:var(--accent2);}
@@ -345,6 +347,12 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 
 /* MEDIA MESSAGES */
 .msg-image{max-width:260px;max-height:200px;border-radius:10px;cursor:pointer;display:block;object-fit:cover;}
+.msg-caption{font-size:.85rem;color:rgba(255,255,255,.85);margin-top:4px;padding:0 2px;word-break:break-word;}
+.photo-preview-modal .modal{max-width:380px;padding:0;overflow:hidden;background:var(--surface2);}
+.photo-preview-img{width:100%;max-height:320px;object-fit:contain;background:#000;display:block;}
+.photo-preview-input{width:100%;padding:10px 14px;background:var(--surface1);border:none;border-top:1px solid var(--border);color:var(--text);font-size:.9rem;outline:none;font-family:inherit;}
+.photo-preview-input::placeholder{color:var(--muted);}
+.photo-preview-actions{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border);}
 .msg-video{max-width:260px;border-radius:10px;cursor:pointer;display:block;}
 .msg-file-bubble{display:flex;align-items:center;gap:9px;padding:8px 12px;background:rgba(0,0,0,.15);border-radius:10px;cursor:pointer;min-width:180px;}
 .msg-file-icon{font-size:1.5rem;flex-shrink:0;}
@@ -462,6 +470,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 .msg-video-note{width:200px;height:200px;border-radius:50%;overflow:hidden;cursor:pointer;position:relative;flex-shrink:0;box-shadow:0 0 0 3px var(--accent),0 4px 20px rgba(124,58,237,.3);}
 .msg-video-note video{width:100%;height:100%;object-fit:cover;}
 .msg-video-note-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.3);font-size:2.2rem;}
+.videonote-timer-wrap{width:100%;height:3px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden;margin:8px 0 4px;}
+.videonote-timer-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px;transition:width 1s linear;}
 
 /* ── STICKER photo fix ── */
 .msg-sticker-img{width:150px;height:150px;object-fit:contain;border-radius:12px;cursor:pointer;display:block;}
@@ -482,7 +492,7 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
 <!-- AUTH -->
 <div id="auth-screen">
   <div class="auth-logo">WAVE</div>
-  <div class="auth-sub">messenger · v7.0</div>
+  <div class="auth-sub">messenger · v8.0</div>
   <div class="auth-box" id="login-box">
     <h2>Войти</h2>
     <input class="auth-input" id="login-id" type="text" placeholder="Email или @username">
@@ -919,7 +929,8 @@ body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;height
       <button class="modal-cancel" onclick="closeVideoNote()">Отмена</button>
       <button class="modal-ok" id="videonote-btn" onclick="toggleVideoNoteRec()">● Запись</button>
     </div>
-    <p style="font-size:.68rem;color:var(--muted);font-family:'Space Mono',monospace;">Макс. 60 сек</p>
+    <div class="videonote-timer-wrap"><div class="videonote-timer-bar" id="videonote-timer-bar"></div></div>
+    <p style="font-size:.68rem;color:var(--muted);font-family:'Space Mono',monospace;">Макс. 30 сек</p>
   </div>
 </div>
 
@@ -1300,6 +1311,7 @@ window.openChat=(chatId,chat)=>{
   else{
     // Subscribe to other user presence
     if(window.__presOff){window.__presOff();window.__presOff=null;}
+  if(window.__readOff){window.__readOff();window.__readOff=null;}
     const otherUid=Object.keys(chat.members||{}).find(u=>u!==CU.uid);
     if(otherUid){
       window.__presOff=onValue(ref(db,'presence/'+otherUid),snap=>{
@@ -1333,10 +1345,47 @@ async function markRead(chatId){
 function loadMessages(chatId){
   const el=document.getElementById('messages');el.innerHTML='';
   loadPinnedBar(chatId);
+  // Слушаем и сообщения, и read-статусы вместе
   msgListener=onValue(query(ref(db,`chats/${chatId}/messages`),orderByChild('ts'),limitToLast(100)),s=>{
     const chat=chatsData[chatId];
     renderMessages(s.val()||{},chat);
     markRead(chatId);
+  });
+  // Отдельный listener на read - обновляет статусы галочек в реальном времени
+  if(window.__readOff){window.__readOff();window.__readOff=null;}
+  window.__readOff=onValue(ref(db,`chats/${chatId}/read`),snap=>{
+    const readData=snap.val()||{};
+    if(chatsData[chatId]){
+      chatsData[chatId].read=readData;
+      // Обновить только статусы без полного перерендера
+      updateReadStatuses(chatId, readData);
+    }
+  });
+}
+
+function updateReadStatuses(chatId, readData){
+  const el=document.getElementById('messages');
+  if(!el)return;
+  const chat=chatsData[chatId];
+  const memberUids=Object.keys(chat?.members||{});
+  const otherCount=memberUids.filter(u=>u!==CU.uid).length;
+  el.querySelectorAll('.msg-group.sent').forEach(g=>{
+    const msgKey=g.dataset.msgKey;
+    if(!msgKey)return;
+    const meta=g.querySelector('.msg-meta-row');
+    if(!meta)return;
+    const st=meta.querySelector('.msg-status');
+    if(!st)return;
+    // Найдём ts сообщения из атрибута
+    const ts=parseInt(g.dataset.ts||'0');
+    if(!ts)return;
+    const readers=Object.entries(readData).filter(([uid,rd])=>uid!==CU.uid&&rd.ts>=ts);
+    if(readers.length>0){
+      st.className='msg-status read';st.textContent='✓✓';
+      st.title=readers.map(([,rd])=>rd.name+' — '+fmtFull(rd.ts)).join('\n');
+    } else {
+      st.className='msg-status delivered';st.textContent='✓';
+    }
   });
 }
 
@@ -1363,7 +1412,7 @@ function renderMessages(data,chat){
 
     const sent=msg.uid===CU.uid;
     const canDelete=sent||(chat&&isAdmin(chat,CU.uid));
-    const g=document.createElement('div');g.className='msg-group '+(sent?'sent':'recv');
+    const g=document.createElement('div');g.className='msg-group '+(sent?'sent':'recv');g.dataset.ts=msg.ts||'0';
     if(!sent&&chat?.type==='group'){const sn=document.createElement('div');sn.className='msg-sender';sn.textContent=msg.senderName||'?';sn.onclick=()=>openUserById(msg.uid);g.appendChild(sn);}
 
     const b=document.createElement('div');b.className='msg-bubble';
@@ -1392,7 +1441,7 @@ function renderMessages(data,chat){
     }else if(msg.type==='image'&&msg.mediaUrl){
       const img=document.createElement('img');img.className='msg-image';img.src=msg.mediaUrl;img.alt='Фото';img.loading='lazy';
       img.onclick=ev=>{ev.stopPropagation();openLightbox(msg.mediaUrl,'image');};b.appendChild(img);
-      if(msg.text){const t=document.createElement('div');t.textContent=msg.text;t.style.marginTop='5px';b.appendChild(t);}
+      if(msg.text){const t=document.createElement('div');t.className='msg-caption';t.textContent=msg.text;b.appendChild(t);}
     }else if(msg.type==='video'&&msg.mediaUrl){
       const v=document.createElement('video');v.className='msg-video';v.src=msg.mediaUrl;v.controls=true;v.preload='metadata';b.appendChild(v);
       if(msg.text){const t=document.createElement('div');t.textContent=msg.text;t.style.marginTop='5px';b.appendChild(t);}
@@ -1722,19 +1771,28 @@ async function uploadToStorage(file, path, onProgress){
     ? new File([file], path.split('/').pop()||'file', {type:file.type||'application/octet-stream'})
     : file;
   const sizeMB = fileObj.size/1024/1024;
-  const maxMB = 8; // максимум для Realtime DB
+  const maxMB = 20;
   if(sizeMB > maxMB){
     throw new Error('Файл слишком большой ('+sizeMB.toFixed(1)+'MB). Максимум '+maxMB+'MB.');
   }
-  onProgress&&onProgress(20);
-  const b64 = await fileToBase64(fileObj);
-  onProgress&&onProgress(100);
-  return b64; // data: URL
+  // Реальный прогресс через FileReader
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onprogress = e=>{
+      if(e.lengthComputable) onProgress&&onProgress(Math.min(90, e.loaded/e.total*90));
+    };
+    reader.onload = e=>{
+      onProgress&&onProgress(100);
+      resolve(e.target.result);
+    };
+    reader.onerror = ()=>reject(new Error('Ошибка чтения файла'));
+    reader.readAsDataURL(fileObj);
+  });
 }
 
-async function sendFileMsg(file){
+async function sendFileMsg(file, caption=""){
   if(!currentChatId||!file)return;
-  const MAX={image:5,gif:4,video:8,audio:4,file:6}; // base64 лимиты (MB)
+  const MAX={image:8,gif:5,video:12,audio:5,file:8}; // base64 лимиты (MB)
   const isImg=file.type.startsWith('image/')&&!file.type.includes('gif');
   const isGif=file.type.includes('gif');
   const isVid=file.type.startsWith('video/');
@@ -1752,7 +1810,7 @@ async function sendFileMsg(file){
     const url=await uploadToStorage(file,path,setProgress);
     const sn=CUdata?.name||'?';
     let msg={uid:CU.uid,senderName:sn,ts};
-    if(isImg)       msg={...msg,type:'image',mediaUrl:url,text:''};
+    if(isImg)       msg={...msg,type:'image',mediaUrl:url,text:caption||''};
     else if(isGif)  msg={...msg,type:'gif',mediaUrl:url};
     else if(isVid)  msg={...msg,type:'video',mediaUrl:url,text:''};
     else if(isAud){
@@ -1767,9 +1825,29 @@ async function sendFileMsg(file){
   }catch(err){hideProgress();console.error(err);toast('✗ Ошибка загрузки');}
 }
 
+let __pendingPhotoFile=null;
 window.handleMediaFile=async e=>{
-  for(const f of Array.from(e.target.files))await sendFileMsg(f);
+  const files=Array.from(e.target.files);
   e.target.value='';
+  if(!files.length)return;
+  // Фото - показываем превью с подписью
+  if(files.length===1&&files[0].type.startsWith('image/')&&!files[0].type.includes('gif')){
+    __pendingPhotoFile=files[0];
+    const url=URL.createObjectURL(files[0]);
+    document.getElementById('photo-preview-img').src=url;
+    document.getElementById('photo-preview-caption').value='';
+    document.getElementById('photo-preview-modal').classList.add('open');
+    return;
+  }
+  // Видео и несколько файлов - отправляем сразу
+  for(const f of files)await sendFileMsg(f);
+};
+window.confirmSendPhoto=async()=>{
+  if(!__pendingPhotoFile)return;
+  const caption=document.getElementById('photo-preview-caption').value.trim();
+  closeModal('photo-preview-modal');
+  await sendFileMsg(__pendingPhotoFile, caption);
+  __pendingPhotoFile=null;
 };
 window.handleFileAttach=async e=>{
   for(const f of Array.from(e.target.files))await sendFileMsg(f);
@@ -1785,7 +1863,17 @@ window.handleFileAttach=async e=>{
   document.addEventListener('drop',async e=>{
     e.preventDefault();dc=0;ov.classList.remove('show');
     if(!currentChatId){toast('✗ Сначала откройте чат');return;}
-    for(const f of Array.from(e.dataTransfer.files))await sendFileMsg(f);
+    for(const f of Array.from(e.dataTransfer.files)){
+      if(f.type.startsWith('image/')&&!f.type.includes('gif')&&e.dataTransfer.files.length===1){
+        __pendingPhotoFile=f;
+        const url=URL.createObjectURL(f);
+        document.getElementById('photo-preview-img').src=url;
+        document.getElementById('photo-preview-caption').value='';
+        document.getElementById('photo-preview-modal').classList.add('open');
+      } else {
+        await sendFileMsg(f);
+      }
+    }
   });
 })();
 
@@ -1865,6 +1953,7 @@ window.toggleVideoNoteRec=async()=>{
       clearInterval(videoNoteTimer);
       document.getElementById('videonote-rec-indicator').style.display='none';
       document.getElementById('videonote-btn').textContent='● Запись';
+      const tbar=document.getElementById('videonote-timer-bar');if(tbar)tbar.style.width='0%';
       isRecordingVideo=false;
       closeVideoNote();
       if(!currentChatId||videoNoteChunks.length===0)return;
@@ -1886,7 +1975,13 @@ window.toggleVideoNoteRec=async()=>{
     document.getElementById('videonote-rec-indicator').style.display='block';
     document.getElementById('videonote-btn').textContent='⏹ Остановить';
     let sec=0;
-    videoNoteTimer=setInterval(()=>{sec++;if(sec>=60){videoNoteRecorder.stop();}},1000);
+    const maxSec=30; // 30 сек макс для base64
+    const vidTimerBar=document.getElementById('videonote-timer-bar');
+    videoNoteTimer=setInterval(()=>{
+      sec++;
+      if(vidTimerBar)vidTimerBar.style.width=(sec/maxSec*100)+'%';
+      if(sec>=maxSec){videoNoteRecorder.stop();}
+    },1000);
   }else{
     if(videoNoteRecorder)videoNoteRecorder.stop();
   }
@@ -2420,8 +2515,7 @@ function buildProfileAudioPlayer(url,name,dur){
 window.pickProfileAudio=()=>document.getElementById('profile-audio-input').click();
 window.handleProfileAudio=async e=>{
   const file=e.target.files[0];if(!file)return;
-  if(file.size>15*1024*1024){toast('✗ Максимум 15MB');return;}
-  if(file.size>4*1024*1024){toast('✗ Максимум 4MB для музыки профиля');return;}
+  if(file.size>20*1024*1024){toast('✗ Максимум 20MB для музыки профиля');return;}
   toast('⏳ Загрузка музыки...');
   try{
     const b64=await fileToBase64(file);
@@ -2746,13 +2840,17 @@ function initPresence(uid){
 function fmtLastSeen(ts){
   if(!ts)return'';
   const diff=Date.now()-ts;
-  if(diff<60000)return'только что';
-  if(diff<3600000)return Math.floor(diff/60000)+' мин назад';
+  if(diff<30000)return'только что';
+  if(diff<60000)return'менее минуты назад';
+  if(diff<3600000){const m=Math.floor(diff/60000);return m+' '+(m===1?'минуту':m<5?'минуты':'минут')+' назад';}
   const d=new Date(ts);const now=new Date();
-  if(d.toDateString()===now.toDateString())return'сегодня в '+d.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+  const time=d.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+  if(d.toDateString()===now.toDateString())return'сегодня в '+time;
   const yd=new Date(now);yd.setDate(yd.getDate()-1);
-  if(d.toDateString()===yd.toDateString())return'вчера в '+d.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
-  return d.toLocaleDateString('ru',{day:'numeric',month:'short'});
+  if(d.toDateString()===yd.toDateString())return'вчера в '+time;
+  const diff7=diff/(1000*60*60*24);
+  if(diff7<7)return d.toLocaleDateString('ru',{weekday:'long'})+' в '+time;
+  return d.toLocaleDateString('ru',{day:'numeric',month:'long'})+' в '+time;
 }
 
 // ══════════════════════════════════════════════════
@@ -2797,7 +2895,8 @@ window.unpinMsg=async()=>{
 // ── GIF PICKER (Tenor API) ──
 // ══════════════════════════════════════════════════
 let gifTimer=null;
-const TENOR_KEY='AIzaSyBxMsUarJnITQl6HkdnWExXLTi3ZFvBASQ'; // Free Tenor API key
+// GIF через Giphy public API (бесплатно, без регистрации)
+const GIPHY_KEY='dc6zaTOxFJmzC'; // Giphy public beta key - работает без регистрации
 
 window.openGifPicker=()=>{
   document.getElementById('attach-menu').classList.remove('open');
@@ -2817,25 +2916,25 @@ async function fetchGifs(mode,q){
   grid.innerHTML='<div class="gif-empty">⏳ Загрузка...</div>';
   try{
     const url=mode==='trending'
-      ?`https://tenor.googleapis.com/v2/featured?key=${TENOR_KEY}&limit=12&media_filter=gif`
-      :`https://tenor.googleapis.com/v2/search?key=${TENOR_KEY}&q=${encodeURIComponent(q)}&limit=12&media_filter=gif`;
+      ?`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=20&rating=g`
+      :`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=20&rating=g`;
     const r=await fetch(url);
-    if(!r.ok)throw new Error(r.status);
+    if(!r.ok)throw new Error('Ошибка '+r.status);
     const data=await r.json();
-    const results=data.results||[];
+    const results=data.data||[];
     if(!results.length){grid.innerHTML='<div class="gif-empty">Ничего не найдено</div>';return;}
     grid.innerHTML='';
     results.forEach(item=>{
-      const url=(item.media_formats?.tinygif?.url||item.media_formats?.gif?.url||'');
-      const bigUrl=(item.media_formats?.gif?.url||url);
-      if(!url)return;
+      const previewUrl=item.images?.fixed_height_small?.url||item.images?.downsized?.url||'';
+      const bigUrl=item.images?.original?.url||item.images?.downsized?.url||previewUrl;
+      if(!previewUrl)return;
       const cell=document.createElement('div');cell.className='gif-cell';
-      const img=document.createElement('img');img.src=url;img.loading='lazy';img.alt='GIF';
+      const img=document.createElement('img');img.src=previewUrl;img.loading='lazy';img.alt='GIF';
       cell.appendChild(img);
       cell.onclick=()=>doSendGif(bigUrl);
       grid.appendChild(cell);
     });
-  }catch(e){grid.innerHTML='<div class="gif-empty">⚠ Ошибка: ' + e.message + '</div>';}
+  }catch(e){grid.innerHTML='<div class="gif-empty">⚠ '+e.message+'</div>';}
 }
 async function doSendGif(url){
   if(!currentChatId)return;
@@ -3168,6 +3267,17 @@ window.__vibrateOnSend = () => {
 };
 </script>
 <div id="drop-overlay"><div>📎 Отпустите для отправки</div></div>
+<!-- PHOTO PREVIEW MODAL -->
+<div class="modal-overlay photo-preview-modal" id="photo-preview-modal">
+  <div class="modal" style="max-width:380px;padding:0;overflow:hidden;">
+    <img class="photo-preview-img" id="photo-preview-img" src="" alt="">
+    <input class="photo-preview-input" id="photo-preview-caption" placeholder="Добавить подпись..." maxlength="500">
+    <div class="photo-preview-actions">
+      <button class="modal-cancel" style="flex:1" onclick="closeModal('photo-preview-modal')">Отмена</button>
+      <button class="modal-ok" style="flex:1" onclick="confirmSendPhoto()">📤 Отправить</button>
+    </div>
+  </div>
+</div>
 <div class="upload-progress-wrap" id="upload-progress-wrap"><div class="upload-progress-label" id="upload-label">📤</div><div class="upload-progress-bar"><div class="upload-progress-fill" id="upload-fill"></div></div><div class="upload-progress-pct" id="upload-pct">0%</div></div>
 </body>
 </html>
