@@ -2337,7 +2337,6 @@ function showReadByTooltip(e, msg, readData) {
   if(!readers.length) tip.innerHTML='<div class="read-tooltip-title">👁 Прочитано</div><div class="read-tooltip-item">Пока никто не прочитал</div>';}
     tip.innerHTML=`<div class="read-tooltip-title">👁 Прочитали (${readers.length})</div>`+
       readers.map(([,rd])=>`<div class="read-tooltip-item">${esc(rd.name)} — ${fmtFull(rd.ts)}</div>`).join('');
-  }
   const vw=window.innerWidth,vh=window.innerHeight;
   let x=e.clientX,y=e.clientY;
   tip.style.display='block';
