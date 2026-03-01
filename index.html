@@ -1656,23 +1656,32 @@ window.doRegister = async () => {
 };
 
 window.doLogin = async () => {
-  const login = document.getElementById('login-id').value.trim().replace(/^@/,'');
-  const pass = document.getElementById('login-pass').value;
-  setErr('login-error','');
-  if(!login) { setErr('login-error','✗ Введите логин'); return; }
-  if(!pass) { setErr('login-error','✗ Введите пароль'); return; }
-  setBtn('login-btn',true,'Войти →');
-  try {
-    let email = login;
-    if(!login.includes('@') || /\s/.test(login)) {
-      const snap = await get(query(ref(db,'users'), orderByChild('nickLower'), equalTo(login.toLowerCase())));
-      if(!snap.exists()) { setErr('login-error','✗ Пользователь не найден'); setBtn('login-btn',false,'Войти →'); return; }
-      snap.forEach(c => { email = c.val().email; });
-    }
-    await signInWithEmailAndPassword(auth, email, pass);
-  } catch(e) { setErr('login-error','✗ '+xlate(e.code)); setBtn('login-btn',false,'Войти →'); }
-};
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  const errEl = document.getElementById('login-error');
+  
+  if (errEl) errEl.textContent = '';
+  if (!email || !pass) { 
+    if (errEl) errEl.textContent = '✗ Заполните все поля'; 
+    return; 
+  }
 
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+    // Успешный вход обработает onAuthStateChanged
+    closeModal('auth-modal');
+  } catch (error) {
+    console.error("Login Error:", error);
+    if (errEl) {
+      const code = error.code;
+      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        errEl.textContent = '✗ Неверная почта или пароль';
+      } else {
+        errEl.textContent = '✗ Ошибка входа: ' + error.message;
+      }
+    }
+  }
+};
 window.doLogout = async () => {
   if(msgListener && currentChatId) off(ref(db, `chats/${currentChatId}/messages`));
   if(chatsListener) off(ref(db, `userChats/${CU?.uid}`));
