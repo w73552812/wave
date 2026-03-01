@@ -1174,100 +1174,180 @@ input:checked+.toggle-slider::before{transform:translateX(18px);}
   </div>
 </div>
 
-<!-- Sticker Manager Modal -->
-<div class="modal-overlay" id="sticker-manager-modal">
-  <div class="modal" style="max-width:460px;">
-    <h3>🎨 Стикер-паки</h3>
-    <div class="modal-section">Мои паки</div>
-    <div id="my-packs-list" style="max-height:200px;overflow-y:auto;"></div>
-    <div class="modal-section">Создать или добавить стикеры</div>
-    <div style="display:flex;gap:6px;margin-bottom:8px;">
-      <button class="sticker-tab active" id="stab-new" onclick="switchStickerTab('new')">✨ Новый пак</button>
-      <button class="sticker-tab" id="stab-add" onclick="switchStickerTab('add')">➕ Добавить стикеры</button>
-      <button class="sticker-tab" id="stab-tg" onclick="switchStickerTab('tg')">📦 Импорт TG</button>
-    </div>
-    <!-- New pack tab -->
-    <div id="sticker-new-tab">
-      <input class="auth-input" id="new-pack-name" placeholder="Название пака" maxlength="30" style="margin-bottom:6px;">
-      <div style="display:flex;gap:6px;margin-bottom:6px;">
-        <button class="sticker-tab active" id="stab-emoji" onclick="switchStickerCreateTab('emoji')">😄 Эмодзи</button>
-        <button class="sticker-tab" id="stab-photo" onclick="switchStickerCreateTab('photo')">🖼 Картинки</button>
-      </div>
-      <div id="sticker-create-emoji-tab">
-        <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px;">Добавьте эмодзи через запятую:</div>
-        <input class="auth-input" id="new-pack-emojis" placeholder="😄,🔥,💜,🚀,...">
-      </div>
-      <div id="sticker-create-photo-tab" style="display:none;">
-        <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;">Загрузите картинки PNG/WebP (без ограничений)</div>
-        <div class="sticker-photo-upload-grid" id="sticker-photo-grid"></div>
-        <div class="sticker-photo-add" onclick="document.getElementById('sticker-photo-input').click()" style="margin-top:6px;border-radius:8px;padding:10px;">＋ Добавить картинку</div>
-        <input type="file" id="sticker-photo-input" accept="image/png,image/webp,image/gif,image/jpeg" multiple style="display:none;" onchange="handleStickerPhoto(event)">
-      </div>
-      <div class="auth-error" id="pack-create-err"></div>
-      <button class="modal-ok" onclick="createStickerPack()" style="margin-top:6px;">✓ Создать пак</button>
-    </div>
-    window.addStickersToExistingPack = async () => {
+// ==========================================
+// СЕКЦИЯ СТИКЕРОВ (ИСПРАВЛЕННАЯ)
+// ==========================================
+
+let addStickerPhotoPending = []; 
+
+window.switchStickerTab = (tab) => {
+  document.querySelectorAll('.sticker-tab-content').forEach(el => el.style.display = 'none');
+  const target = document.getElementById('sticker-' + tab + '-tab');
+  if(target) target.style.display = 'block';
+  
+  document.querySelectorAll('#sticker-manager-modal .tab').forEach(t => t.classList.remove('active'));
+  const activeTab = document.querySelector(`#sticker-manager-modal .tab[onclick*="${tab}"]`);
+  if(activeTab) activeTab.classList.add('active');
+};
+
+// Рендер клавиатуры выбора стикеров в чате
+window.renderStickerPicker = async () => {
+  const container = document.getElementById('sticker-picker-content');
+  if(!container) return;
+  
+  const myPacks = getMyPacks();
+  if(!myPacks.length) {
+    container.innerHTML = '<div class="empty-info">У вас нет стикерпаков. <br><span style="color:var(--accent); cursor:pointer" onclick="openModal(\'sticker-manager-modal\')">Создать?</span></div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  myPacks.forEach(pack => {
+    const section = document.createElement('div');
+    section.className = 'sticker-picker-section';
+    section.innerHTML = `<div class="sticker-section-title">${pack.name}</div>`;
+    
+    const grid = document.createElement('div');
+    grid.className = 'sticker-grid-mini';
+    
+    (pack.stickers || []).forEach(stkUrl => {
+      const img = document.createElement('img');
+      img.src = stkUrl;
+      img.onclick = () => doSendSticker(stkUrl);
+      grid.appendChild(img);
+    });
+    
+    section.appendChild(grid);
+    container.appendChild(section);
+  });
+};
+
+// Добавление фото в превью при создании или пополнении пака
+window.handleAddStickerPhoto = (e) => {
+  const files = Array.from(e.target.files);
+  const gridCreate = document.getElementById('create-sticker-photo-grid');
+  const gridAdd = document.getElementById('add-sticker-photo-grid');
+  
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      addStickerPhotoPending.push({ dataUrl });
+      
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.style.width = '60px';
+      img.style.height = '60px';
+      img.style.borderRadius = '8px';
+      img.style.objectFit = 'cover';
+      
+      if(gridCreate) gridCreate.appendChild(img.cloneNode(true));
+      if(gridAdd) gridAdd.appendChild(img);
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+// СОЗДАНИЕ НОВОГО ПАКА
+window.createStickerPack = async () => {
+  const name = document.getElementById('stk-pack-name').value.trim();
+  if(!name || !addStickerPhotoPending.length) { toast('✗ Заполните название и фото'); return; }
+
+  const packId = 'pack_' + Date.now();
+  const newPack = {
+    id: packId,
+    name: name,
+    creator: CU.uid,
+    creatorNick: CUdata?.nick || 'Аноним',
+    stickers: addStickerPhotoPending.map(s => s.dataUrl)
+  };
+
+  await set(ref(db, `stickerPacks/${packId}`), newPack);
+  
+  const my = getMyPacks();
+  my.push(newPack);
+  saveMyPacks(my);
+  
+  addStickerPhotoPending = [];
+  document.getElementById('stk-pack-name').value = '';
+  document.getElementById('create-sticker-photo-grid').innerHTML = '';
+  
+  renderStickerPicker();
+  renderMyPacksList();
+  toast('✓ Пак создан');
+  switchStickerTab('my');
+};
+
+// ДОБАВЛЕНИЕ В СУЩЕСТВУЮЩИЙ ПАК
+window.addStickersToExistingPack = async () => {
   const packId = document.getElementById('add-to-pack-select').value;
   if(!packId) { toast('✗ Выберите пак'); return; }
-  if(!addStickerPhotoPending || !addStickerPhotoPending.length) { toast('✗ Добавьте картинки'); return; }
-  
-  toast('⏳ Добавление...');
-  try {
-    const snap = await get(ref(db, `stickerPacks/${packId}`));
-    if(!snap.exists()) { toast('✗ Пак не найден'); return; }
+  if(!addStickerPhotoPending.length) { toast('✗ Выберите фото'); return; }
+
+  toast('⏳ Обновление...');
+  const snap = await get(ref(db, `stickerPacks/${packId}`));
+  if(snap.exists()) {
+    const pack = snap.val();
+    const updatedStickers = [...(pack.stickers || []), ...addStickerPhotoPending.map(s => s.dataUrl)];
     
-    let pack = snap.val();
-    let stickers = pack.stickers || [];
-    
-    // Добавляем новые картинки (Base64 dataURL)
-    for(let i = 0; i < addStickerPhotoPending.length; i++) {
-      stickers.push(addStickerPhotoPending[i].dataUrl);
-    }
-    
-    // Обновляем в БД
-    await update(ref(db, `stickerPacks/${packId}`), { stickers });
+    await update(ref(db, `stickerPacks/${packId}`), { stickers: updatedStickers });
     
     // Обновляем локально
     const my = getMyPacks();
     const idx = my.findIndex(p => p.id === packId);
-    if(idx !== -1) { 
-      my[idx].stickers = stickers; 
-      saveMyPacks(my); 
-      userStickerPacks = my; 
-    }
+    if(idx !== -1) my[idx].stickers = updatedStickers;
+    saveMyPacks(my);
     
-    // Очищаем форму
     addStickerPhotoPending = [];
     document.getElementById('add-sticker-photo-grid').innerHTML = '';
+    renderStickerPicker();
+    toast('✓ Стикеры добавлены');
     closeModal('sticker-manager-modal');
-    renderStickerPicker(); // Обновляем клавиатуру стикеров
-    toast('✓ Стикеры добавлены в пак!');
-  } catch(e) { 
-    console.error(e); 
-    toast('✗ Ошибка при добавлении'); 
   }
 };
-    <!-- Add to existing pack tab -->
-    <div id="sticker-add-tab" style="display:none;">
-      <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px;">Выберите пак для добавления стикеров:</div>
-      <select class="auth-input" id="add-to-pack-select" style="margin-bottom:8px;"></select>
-      <div class="sticker-photo-upload-grid" id="add-sticker-photo-grid"></div>
-      <div class="sticker-photo-add" onclick="document.getElementById('add-sticker-input').click()" style="margin-top:6px;border-radius:8px;padding:10px;">＋ Добавить картинку</div>
-      <input type="file" id="add-sticker-input" accept="image/png,image/webp,image/gif,image/jpeg" multiple style="display:none;" onchange="handleAddStickerPhoto(event)">
-      <button class="modal-ok" onclick="addStickersToExistingPack()" style="margin-top:8px;">➕ Добавить в пак</button>
-    </div>
-    <!-- TG import tab -->
-    <div id="sticker-tg-tab" style="display:none;">
-      <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px;">Вставьте ссылку на стикерпак Telegram:</div>
-      <input class="auth-input" id="tg-sticker-url" placeholder="https://t.me/addstickers/PackName" style="margin-bottom:6px;">
-      <div style="font-size:.68rem;color:var(--muted);line-height:1.5;margin-bottom:8px;">⚠ Загрузит эмодзи-стикеры из TG пака. Полные изображения недоступны из-за API ограничений TG.</div>
-      <button class="modal-ok" onclick="importTGStickerPack()">📦 Импортировать</button>
-    </div>
-    <div class="modal-section">Паки сообщества</div>
-    <div id="community-packs-list" style="max-height:180px;overflow-y:auto;"></div>
-    <div class="modal-actions"><button class="modal-cancel" onclick="closeModal('sticker-manager-modal')">Закрыть</button></div>
-  </div>
-</div>
+
+window.renderMyPacksList = () => {
+  const list = document.getElementById('my-packs-list');
+  const select = document.getElementById('add-to-pack-select');
+  if(!list) return;
+
+  const my = getMyPacks();
+  list.innerHTML = '';
+  if(select) select.innerHTML = '<option value="">-- Выберите пак --</option>';
+
+  my.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'pack-item';
+    item.innerHTML = `<span>${p.name} (${p.stickers?.length || 0})</span> 
+                      <button onclick="deletePack('${p.id}')" style="color:red; background:none; border:none;">✕</button>`;
+    list.appendChild(item);
+    
+    if(select) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    }
+  });
+};
+
+// Удаление пака
+window.deletePack = (id) => {
+  if(!confirm('Удалить этот пак?')) return;
+  let my = getMyPacks();
+  my = my.filter(p => p.id !== id);
+  saveMyPacks(my);
+  renderMyPacksList();
+  renderStickerPicker();
+  toast('Пак удален из вашей коллекции');
+};
+
+function getMyPacks() {
+  try { return JSON.parse(localStorage.getItem('myStickerPacks') || '[]'); } catch(e) { return []; }
+}
+function saveMyPacks(data) {
+  localStorage.setItem('myStickerPacks', JSON.stringify(data));
+}
 
 <!-- Video Note Modal -->
 <div class="modal-overlay" id="videonote-modal">
