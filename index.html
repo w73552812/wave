@@ -1354,7 +1354,35 @@ window.applyTheme = theme => {
   if(title) title.textContent = theme === 'light' ? 'Светлая тема' : 'Тёмная тема';
 };
 // --- ЛОГИКА ПРОФИЛЯ И НАСТРОЕК ---
+window.selectChat = (chatId) => {
+  console.log("Выбран чат:", chatId);
+  window.currentChatId = chatId;
+  
+  // Убираем активный класс у всех и добавляем выбранному
+  document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
+  const activeEl = document.querySelector(`.chat-item[onclick*="${chatId}"]`);
+  if (activeEl) activeEl.classList.add('active');
 
+  // Закрываем список чатов на мобилках при выборе
+  const sidebar = document.getElementById('sidebar');
+  if (window.innerWidth < 768 && sidebar) {
+    sidebar.classList.remove('show');
+  }
+
+  // Очищаем контейнер и загружаем сообщения
+  const container = document.getElementById('messages-container');
+  if (container) container.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
+  
+  // Вызываем загрузку сообщений (убедись, что эта функция у тебя так называется)
+  if (typeof loadMessages === 'function') {
+    loadMessages(chatId);
+  } else {
+    console.error("Функция loadMessages не найдена!");
+  }
+  
+  // Обновляем шапку чата
+  renderChatHeader(chatId);
+};
 window.toggleTheme = () => {
   const html = document.documentElement;
   const current = html.getAttribute('data-theme');
