@@ -3704,7 +3704,7 @@ function fmtLastSeen(ts){
 // ══════════════════════════════════════════════════
 // ── PINNED MESSAGES ──
 // ══════════════════════════════════════════════════
-let pinnedListener=null;
+
 function loadPinnedBar(chatId){
   if(pinnedListener){pinnedListener();pinnedListener=null;}
   const bar=document.getElementById('pinned-bar');
