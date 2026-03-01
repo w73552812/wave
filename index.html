@@ -1576,18 +1576,28 @@ window.doLogout = async () => {
 
 // Исправленный doLogin (вставь его сюда, чтобы он точно определился)
 window.doLogin = async () => {
-  const email = document.getElementById('login-email').value.trim();
+  const id = document.getElementById('login-id').value.trim();
   const pass = document.getElementById('login-pass').value.trim();
   const errEl = document.getElementById('login-error');
-  if(!email || !pass) { errEl.textContent = '✗ Заполните поля'; return; }
+  if(!id || !pass) { setErr('login-error','✗ Заполните все поля'); return; }
   try {
-    await signInWithEmailAndPassword(auth, email, pass);
-    closeModal('auth-modal');
-  } catch (e) {
-    errEl.textContent = '✗ Ошибка: ' + e.message;
-  }
+    // Try email first
+    if(id.includes('@')) {
+      await signInWithEmailAndPassword(auth, id, pass);
+    } else {
+      // Find user by nick
+      const snap = await get(query(ref(db,'users'), orderByChild('nickLower'), equalTo(id.toLowerCase())));
+      if(!snap.exists()) throw new Error('Пользователь не найден');
+      const user = Object.values(snap.val())[0];
+      await signInWithEmailAndPassword(auth, user.email, pass);
+    }
+  } catch(e) { setErr('login-error','✗ ' + (e.message || 'Ошибка входа')); }
 };
 
+window.doLogout = async () => {
+  if(!confirm('Вы уверены?')) return;
+  await signOut(auth);
+};
 // ══════════════ AUTH TABS ══════════════
 window.setAuthTab = tab => {
   ['login','reg','qr'].forEach(t => {
@@ -2344,7 +2354,6 @@ function showReadByTooltip(e, msg, readData) {
   if(x+tw>vw-10)x=vw-tw-10;if(y+th>vh-10)y=vh-th-10;
   tip.style.left=x+'px';tip.style.top=y+'px';
   setTimeout(()=>tip.style.display='none',4000);
-}
 document.addEventListener('click',()=>{
   document.getElementById('ctx-menu').classList.remove('show');
   document.getElementById('read-tooltip').style.display='none';
