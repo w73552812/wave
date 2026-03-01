@@ -2842,7 +2842,7 @@ const BUILTIN_PACKS=[
   {id:'wave_love',name:'Любовь',stickers:['❤️','🧡','💛','💚','💙','💜','🖤','🤍','❤️‍🔥','💔','❣️','💕','💞','💓','💗','💖','💘','💝','🫶','🫀']},
   {id:'wave_moods',name:'Настроения',stickers:['😢','😭','😤','😠','😡','🤬','😈','😰','😱','😨','😶','🤐','😑','😒','😔','😟','😕','☹️','🙁','😣']},
 ];
-let userStickerPacks=[];
+
 
 function getMyPacks(){
   try{return JSON.parse(localStorage.getItem('wave_sticker_packs_'+(CU?.uid||''))||'[]');}catch{return[];}
