@@ -967,9 +967,10 @@ import {
   getDatabase, ref, set, get, push, onValue, off, update, remove,
   query, orderByChild, limitToLast, equalTo, onDisconnect
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
-import {
-  getStorage, ref as sref, uploadBytes, getDownloadURL, uploadBytesResumable
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+// Firebase Storage не используется - файлы хранятся как base64 в Realtime DB
+// Stub functions so existing code still compiles
+const getStorage=()=>({}),sref=()=>({}),uploadBytes=async()=>{throw new Error("no storage");};
+const getDownloadURL=async()=>{throw new Error("no storage");},uploadBytesResumable=()=>{throw new Error("no storage");};
 
 const FC = {
   apiKey:"AIzaSyDaMGT4kvbS5_sKhPQm7u5g30baMaPxYvw",
@@ -983,7 +984,7 @@ const FC = {
 const app=initializeApp(FC);
 const auth=getAuth(app);
 const db=getDatabase(app);
-const storage=getStorage(app);
+// const storage removed
 setPersistence(auth,browserLocalPersistence).catch(console.error);
 
 const COLORS=['#7c3aed','#059669','#db2777','#0891b2','#d97706','#6366f1','#ef4444','#f97316','#14b8a6','#8b5cf6','#ec4899','#22c55e'];
@@ -1695,21 +1696,45 @@ function setProgress(pct){
 }
 function hideProgress(){document.getElementById('upload-progress-wrap').classList.remove('show');}
 
-async function uploadToStorage(file, path, onProgress){
+// ── fileToBase64 helper ──
+async function fileToBase64(file){
   return new Promise((resolve,reject)=>{
-    const storRef=sref(storage,path);
-    const task=uploadBytesResumable(storRef,file,{contentType:file.type||'application/octet-stream'});
-    task.on('state_changed',
-      s=>{onProgress&&onProgress(s.bytesTransferred/s.totalBytes*100);},
-      reject,
-      async()=>{try{resolve(await getDownloadURL(task.snapshot.ref));}catch(e){reject(e);}}
-    );
+    const r=new FileReader();
+    r.onload=e=>resolve(e.target.result);
+    r.onerror=()=>reject(new Error('Ошибка чтения файла'));
+    r.readAsDataURL(file);
   });
+}
+async function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=e=>resolve(e.target.result);
+    r.onerror=()=>reject(new Error('Ошибка'));
+    r.readAsDataURL(blob);
+  });
+}
+// Лимиты base64 в Realtime DB
+const BASE64_LIMITS={image:5,gif:4,video:8,audio:4,videonote:8,file:6,sticker:2};// MB
+
+async function uploadToStorage(file, path, onProgress){
+  // Файл → base64 Data URL → Realtime Database (без Firebase Storage)
+  const fileObj = (file instanceof Blob && !(file instanceof File))
+    ? new File([file], path.split('/').pop()||'file', {type:file.type||'application/octet-stream'})
+    : file;
+  const sizeMB = fileObj.size/1024/1024;
+  const maxMB = 8; // максимум для Realtime DB
+  if(sizeMB > maxMB){
+    throw new Error('Файл слишком большой ('+sizeMB.toFixed(1)+'MB). Максимум '+maxMB+'MB.');
+  }
+  onProgress&&onProgress(20);
+  const b64 = await fileToBase64(fileObj);
+  onProgress&&onProgress(100);
+  return b64; // data: URL
 }
 
 async function sendFileMsg(file){
   if(!currentChatId||!file)return;
-  const MAX={image:25,gif:10,video:200,audio:50,file:100};
+  const MAX={image:5,gif:4,video:8,audio:4,file:6}; // base64 лимиты (MB)
   const isImg=file.type.startsWith('image/')&&!file.type.includes('gif');
   const isGif=file.type.includes('gif');
   const isVid=file.type.startsWith('video/');
@@ -1788,9 +1813,10 @@ window.toggleRecord=async()=>{
       toast('⏳ Отправка...');
       try{
         const blob=new Blob(audioChunks,{type:audioChunks[0].type||'audio/webm'});
+        const audioFile=new File([blob],'voice.webm',{type:blob.type||'audio/webm'});
         const path=`audio/${currentChatId}/${Date.now()}.webm`;
         showProgress('🎙 Голосовое...');
-        const url=await uploadToStorage(blob,path,setProgress);
+        const url=await uploadToStorage(audioFile,path,setProgress);
         const senderName=CUdata?.name||'?';
         await push(ref(db,`chats/${currentChatId}/messages`),{type:'audio',mediaUrl:url,audioDuration:dur,uid:CU.uid,senderName,ts:Date.now()});
         await update(ref(db,`chats/${currentChatId}`),{lastMsgTs:Date.now()});
@@ -1845,9 +1871,10 @@ window.toggleVideoNoteRec=async()=>{
       toast('⏳ Отправка кружка...');
       try{
         const blob=new Blob(videoNoteChunks,{type:'video/webm'});
+        const videoFile=new File([blob],'videonote.webm',{type:'video/webm'});
         const path=`videonotes/${currentChatId}/${Date.now()}.webm`;
         showProgress('⭕ Кружок...');
-        const url=await uploadToStorage(blob,path,setProgress);
+        const url=await uploadToStorage(videoFile,path,setProgress);
         const senderName=CUdata?.name||'?';
         await push(ref(db,`chats/${currentChatId}/messages`),{type:'videonote',mediaUrl:url,uid:CU.uid,senderName,ts:Date.now()});
         await update(ref(db,`chats/${currentChatId}`),{lastMsgTs:Date.now()});
@@ -2050,15 +2077,11 @@ window.createStickerPack=async()=>{
     try{
       const uploaded=[];
       for(let i=0;i<stickerPhotoPending.length;i++){
-        const {file}=stickerPhotoPending[i];
-        const path=`stickers/${CU.uid}/${Date.now()}_${i}_${file.name}`;
-        const storRef=sref(storage,path);
-        await uploadBytes(storRef,file,{contentType:file.type});
-        const url=await getDownloadURL(storRef);
-        uploaded.push(url);
+        const {dataUrl}=stickerPhotoPending[i];
+        uploaded.push(dataUrl); // base64 data URL
       }
       stickers=uploaded;
-    }catch(err){console.error(err);setErr('pack-create-err','✗ Ошибка загрузки картинок');return;}
+    }catch(err){console.error(err);setErr('pack-create-err','✗ Ошибка');return;}
   }
   const packId='pack_'+CU.uid+'_'+Date.now();
   const packData={id:packId,name,stickers,packType:stickerCreateTab,creator:CUdata?.nick||CUdata?.name||'?',createdAt:Date.now(),creatorUid:CU.uid};
@@ -2291,14 +2314,8 @@ window.saveGroupAvatar=async()=>{
   if(!currentChatId)return;
   let av;
   if(groupAvatarPendingData){
-    try{
-      toast('⏳ Загрузка...');
-      const res=await fetch(groupAvatarPendingData);const blob=await res.blob();
-      const storRef=sref(storage,`avatars/groups/${currentChatId}_${Date.now()}.jpg`);
-      await uploadBytes(storRef,blob,{contentType:'image/jpeg'});
-      const url=await getDownloadURL(storRef);
-      av={photoUrl:url};
-    }catch(e){av={photoData:groupAvatarPendingData};}
+    // Храним base64 прямо в Realtime DB
+    av={photoData:groupAvatarPendingData};
   }else{av={color:gravPickerColor,emoji:gravPickerEmoji};}
   await update(ref(db,`chats/${currentChatId}`),{avatar:av});
   chatsData[currentChatId].avatar=av;
@@ -2404,16 +2421,14 @@ window.pickProfileAudio=()=>document.getElementById('profile-audio-input').click
 window.handleProfileAudio=async e=>{
   const file=e.target.files[0];if(!file)return;
   if(file.size>15*1024*1024){toast('✗ Максимум 15MB');return;}
+  if(file.size>4*1024*1024){toast('✗ Максимум 4MB для музыки профиля');return;}
   toast('⏳ Загрузка музыки...');
   try{
-    const path=`profileAudio/${CU.uid}/${Date.now()}_${file.name}`;
-    const storRef=sref(storage,path);
-    await uploadBytes(storRef,file,{contentType:file.type});
-    const url=await getDownloadURL(storRef);
-    // Get duration
-    const tempAudio=new Audio(url);
-    const dur=await new Promise(res=>{tempAudio.onloadedmetadata=()=>res(Math.round(tempAudio.duration));tempAudio.onerror=()=>res(0);});
-    const audioData={url,name:file.name.replace(/\.[^.]+$/,''),duration:dur};
+    const b64=await fileToBase64(file);
+    // Получаем длительность через временный audio элемент
+    const tempAudio=new Audio(b64);
+    const dur=await new Promise(res=>{tempAudio.onloadedmetadata=()=>res(Math.round(tempAudio.duration));tempAudio.onerror=()=>res(0);setTimeout(()=>res(0),3000);});
+    const audioData={url:b64,name:file.name.replace(/\.[^.]+$/,''),duration:dur};
     await update(ref(db,`users/${CU.uid}`),{profileAudio:audioData});
     CUdata.profileAudio=audioData;
     renderProfileAudioSection(audioData);
@@ -2544,20 +2559,8 @@ window.handleAvatarFile=e=>{
 window.saveAvatar=async()=>{
   let av;
   if(avatarPendingData){
-    try{
-      toast('⏳ Загрузка аватара...');
-      // Convert base64 to blob
-      const res=await fetch(avatarPendingData);const blob=await res.blob();
-      const storePath=`avatars/${CU.uid}/avatar_${Date.now()}.jpg`;
-      const storRef=sref(storage,storePath);
-      await uploadBytes(storRef,blob,{contentType:'image/jpeg'});
-      const url=await getDownloadURL(storRef);
-      av={photoUrl:url};
-    }catch(e){
-      console.error('Avatar upload error:',e);
-      // Fallback to base64 if storage fails
-      av={photoData:avatarPendingData};
-    }
+    // Используем base64 напрямую в Realtime DB
+    av={photoData:avatarPendingData};
   }else{av={color:pickerColor,emoji:pickerEmoji};}
   await update(ref(db,`users/${CU.uid}`),{avatar:av});
   CUdata.avatar=av;updateMyAvBtn();
